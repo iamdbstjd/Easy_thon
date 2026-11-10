@@ -1,4 +1,4 @@
-"""데모 시나리오 A·B·C 통합 테스트 (PRD 11장 기대 등급표, 4.3 와이어프레임, 10장 금지 표현)."""
+"""데모 시나리오 A·B·C 통합 테스트."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ SCENARIOS = ["A", "B", "C"]
 
 G, Y, R, U = "green", "yellow", "red", "unknown"
 
-# PRD 11.2 기대 등급표
+# 예시 A·B·C 기대 등급표
 _TABLE = {
     #       A  B  C
     "R1": (G, G, R),
@@ -98,7 +98,7 @@ def test_fixture_settings_follow_prd_11_1():
 
 
 # ---------------------------------------------------------------------------
-# 기대 등급표 (PRD 11.2)
+# 기대 등급표
 # ---------------------------------------------------------------------------
 
 
@@ -113,7 +113,7 @@ def test_expected_grades(name):
 def test_p0_only_variant_keeps_overall(name):
     report = build_report(p0_only(name))
     assert levels(report) == dict(EXPECTED[name], R5=U, R9=U)
-    # R5·R9는 핵심 규칙이 아니므로 A도 "큰 위험 신호 없음" 그대로다 (PRD 7.3)
+    # R5·R9는 핵심 규칙이 아니므로 A도 "큰 위험 신호 없음" 그대로다
     assert (report.overall.level, report.overall.title) == OVERALL[name]
     assert report.overall.unknown_note == "확인하지 못한 항목 2개"
     for r in report.results:
@@ -151,7 +151,7 @@ def test_overall_banners():
     assert b.overall.unknown_note == "확인하지 못한 항목 1개"
     assert c.overall.message == "보증금을 잃을 수 있는 위험 신호가 3개 있어요. 해결되기 전에는 계약을 미루는 걸 권해요."
     assert c.overall.unknown_note is None
-    # PRD 4.3 와이어프레임: 위험 3 · 주의 2 · 해당 없음 8
+    # 검토서 예시: 위험 3 · 주의 2 · 해당 없음 8
     assert c.counts.model_dump() == {"red": 3, "yellow": 2, "unknown": 0, "green": 8}
     assert a.counts.model_dump() == {"red": 0, "yellow": 0, "unknown": 0, "green": 13}
     assert b.counts.model_dump() == {"red": 0, "yellow": 5, "unknown": 1, "green": 7}

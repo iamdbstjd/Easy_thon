@@ -1,4 +1,4 @@
-"""API 오류 형식 (PRD 9장).
+"""API 오류 형식.
 
 모든 오류 응답은 {"error": {"code": "...", "message": "사용자에게 보여줄 문장"}} 이다.
 """
@@ -12,14 +12,14 @@ from fastapi.responses import JSONResponse
 
 logger = logging.getLogger("app.errors")
 
-# PRD 9장 오류 표의 문구 그대로
+# 사용자에게 보여 줄 오류 문구
 ERROR_MESSAGES: dict[str, str] = {
     "UNSUPPORTED_FILE": "등기부는 PDF, 계약서는 사진이나 PDF로 10MB 이하만 올릴 수 있어요.",
     "NOT_REGISTRY": "등기부등본이 아닌 것 같아요. 인터넷등기소에서 받은 PDF를 올려주세요.",
     "LAND_REGISTRY": "토지 등기부예요. 건물(또는 집합건물) 등기부를 올려주세요.",
     "NOT_CONTRACT": "임대차 계약서가 아닌 것 같아요.",
     "AI_FAILED": "문서를 읽지 못했어요. 잠시 후 다시 시도하거나 데모를 이용해 주세요.",
-    # PRD 표에 없는 개발용 코드 (사용자 화면에는 거의 나오지 않는다)
+    # 개발용 코드 (사용자 화면에는 거의 나오지 않는다)
     "NOT_FOUND": "데모 데이터를 찾지 못했어요. 데모 시나리오는 A, B, C예요.",
     "INTERNAL_ERROR": "일시적인 오류가 생겼어요. 잠시 후 다시 시도하거나 데모를 이용해 주세요.",
 }

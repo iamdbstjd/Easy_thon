@@ -1,6 +1,6 @@
 import { IS_MOCK } from '../api/client'
 
-/** 머리글: 왼쪽에 서비스 이름, 오른쪽 구석에 "예시" 표시 (PRD F7의 데모 표시). 테두리 없는 보조 글자다. */
+/** 머리글: 왼쪽에 서비스 이름, 오른쪽 구석에 "예시" 표시. 테두리 없는 보조 글자다. */
 export function Header({ demo }: { demo: boolean }) {
   const marks = [demo ? '예시' : null, IS_MOCK ? '모의 데이터' : null].filter(Boolean)
   return (

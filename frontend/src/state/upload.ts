@@ -3,7 +3,7 @@
 import type { ManualInput } from '../api/types'
 import { digitsToNumber } from '../lib/format'
 
-/** 직접 입력 (PRD 8.5). 금액은 숫자만 담은 문자열, 날짜는 "YYYY-MM-DD" 또는 "" */
+/** 직접 입력. 금액은 숫자만 담은 문자열, 날짜는 "YYYY-MM-DD" 또는 "" */
 export interface ManualDraft {
   deposit: string
   monthly_rent: string

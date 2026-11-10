@@ -92,8 +92,8 @@ JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00" + b"\x00" * 64
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 KST = dt.timezone(dt.timedelta(hours=9))
 
-# PRD 9장 오류 표 그대로
-PRD_MESSAGES = {
+# 사용자에게 보여 줄 오류 문구
+EXPECTED_MESSAGES = {
     "UNSUPPORTED_FILE": "등기부는 PDF, 계약서는 사진이나 PDF로 10MB 이하만 올릴 수 있어요.",
     "NOT_REGISTRY": "등기부등본이 아닌 것 같아요. 인터넷등기소에서 받은 PDF를 올려주세요.",
     "LAND_REGISTRY": "토지 등기부예요. 건물(또는 집합건물) 등기부를 올려주세요.",
@@ -214,7 +214,7 @@ def client():
 
 
 def test_error_messages_match_prd():
-    for code, message in PRD_MESSAGES.items():
+    for code, message in EXPECTED_MESSAGES.items():
         assert ERROR_MESSAGES[code] == message
 
 
@@ -224,7 +224,7 @@ def test_openapi_schema_builds(client):
 
 
 # ---------------------------------------------------------------------------
-# 주민등록번호 가리기 (app/privacy.py, PRD 10장)
+# 주민등록번호 가리기
 # ---------------------------------------------------------------------------
 
 # 응답 JSON에 가려지지 않은 주민등록번호 앞자리(숫자 6개)가 남았는지 찾는다
@@ -905,7 +905,7 @@ def test_ics_uses_crlf_and_folds_long_lines():
 def test_ics_events_dates_alarm_and_escaping():
     lines = unfold(ics.build_ics(IcsRequest.model_validate(ICS_REQUEST), now=NOW))
     assert lines[:4] == ["BEGIN:VCALENDAR", "VERSION:2.0", f"PRODID:{ics.PRODID}", "CALSCALE:GREGORIAN"]
-    assert lines.count("BEGIN:VEVENT") == 2  # 잔금일·입주일만 (PRD F12)
+    assert lines.count("BEGIN:VEVENT") == 2  # 잔금일·입주일만
     summaries = [line for line in lines if line.startswith("SUMMARY:")]
     assert summaries == [
         "SUMMARY:[보증금 지킴이] 잔금일: 잔금 보내기 전 등기부 다시 떼기 (새 근저당이 없는지)",

@@ -1,6 +1,6 @@
 import type { DemoScenario } from '../api/types'
 
-// PRD 4.2 S1: 예시 결과 보기 — A 위험 신호 없는 집 / B 확인할 게 있는 집 / C 위험 신호가 있는 집.
+// S1 예시 결과 보기 — A 위험 신호 없는 집 / B 확인할 게 있는 집 / C 위험 신호가 있는 집.
 // "안전" 같은 단정 표현은 쓰지 않는다. 데모 시나리오를 불러오는 글자 링크다.
 const EXAMPLES: { id: DemoScenario; label: string }[] = [
   { id: 'A', label: 'A 위험 신호 없는 집' },

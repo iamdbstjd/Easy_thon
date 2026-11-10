@@ -1,7 +1,6 @@
 """Round 2: edge cases found by black-box probing after the first run.
 
-Each test cites the PRD sentence it checks. Tests marked "ambiguous" encode the
-verifier's reading of an ambiguous PRD passage (see report).
+Tests marked "ambiguous" encode the verifier's reading of an ambiguous rule.
 """
 
 from __future__ import annotations
@@ -146,7 +145,7 @@ def test_r8_other_date_formats_stripped(cause):
 # 7.4 조사 — "앞 글자가 한글이나 숫자가 아니면(예: "이○○") 7.2의 조사를 그대로 쓴다" (ambiguous)
 # ---------------------------------------------------------------------------
 def test_josa_skips_closing_bracket():
-    # v0.3: "닫는 괄호·따옴표는 건너뛰고 그 앞 글자를 본다 ("한빛(주)예요")" (PRD.md line 463)
+    # "닫는 괄호·따옴표는 건너뛰고 그 앞 글자를 본다 ("한빛(주)예요")"
     d = demo("A")
     d["registry"]["gapgu"] = [E("1", "소유권보존", "2010-01-01", None, ["박영희"])]
     d["contract"]["landlord_names"] = ["한빛(주)"]

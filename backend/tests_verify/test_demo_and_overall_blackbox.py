@@ -1,6 +1,6 @@
-"""PRD 11.2 expected-grade table, P0-only variant, 7.3 overall verdict, 8.6 report shape.
+"""Expected-grade table for examples A·B·C, variant without public data, overall verdict, report shape.
 
-Written from PRD.md only.
+Written from the spec only.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from verify_helpers import (
 
 G, Y, R, U = "green", "yellow", "red", "unknown"
 
-# PRD 11.2
+# expected grades
 TABLE = {
     "A": dict(R1=G, R2=G, R3=G, R4=G, R5=G, R6=G, R7=G, R8=G, R9=G, R10=G, R11=G, R12=G, R13=G),
     "B": dict(R1=G, R2=G, R3=G, R4=G, R5=U, R6=Y, R7=Y, R8=Y, R9=G, R10=G, R11=G, R12=Y, R13=Y),
@@ -259,7 +259,7 @@ CORPUS = _corpus()
 def test_8_6_invariants(name):
     d = CORPUS[name]
     rep = run(d)
-    # all 13 rules exactly once, with PRD names
+    # all 13 rules exactly once, with their rule names
     assert sorted(r.id for r in rep.results) == sorted(RULE_IDS)
     for r in rep.results:
         assert r.name == RULE_NAMES[r.id]

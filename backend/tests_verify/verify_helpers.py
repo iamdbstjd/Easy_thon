@@ -1,6 +1,6 @@
-"""Black-box verification helpers written from PRD.md only (not from app/rules).
+"""Black-box verification helpers written from the spec only (not from app/rules).
 
-Every expected string below is copied from PRD 7.2 / 7.3 / 12.x.
+Every expected string below is copied from the spec.
 """
 
 from __future__ import annotations
@@ -17,10 +17,10 @@ from app.schemas import CheckRequest, Report
 DEMO_DIR = Path(__file__).resolve().parents[1] / "demo"
 TODAY = dt.date(2026, 11, 14)
 RULE_IDS = [f"R{i}" for i in range(1, 14)]
-CORE = ("R1", "R2", "R3", "R7", "R8", "R13")  # PRD 7.3
+CORE = ("R1", "R2", "R3", "R7", "R8", "R13")  # core rules
 
 # ---------------------------------------------------------------------------
-# PRD 7.2 copy
+# rule copy
 # ---------------------------------------------------------------------------
 R1_RED_TITLE = "계약하는 사람과 집주인이 달라요"
 R1_RED_ACTION = "대리 계약이라면 위임장과 인감증명서를 확인하고 소유자와 직접 통화하세요. 보증금은 소유자 명의 계좌로만 보내세요."
@@ -85,12 +85,12 @@ R13_ACTION = "계약 당일과 잔금 당일에 등기부를 다시 떼어 보�
 
 EXCEPTION_REASON = "이 항목을 계산하는 중 문제가 생겼어요"
 
-# PRD 7.3
+# overall verdict
 OV_RED = ("red", "계약 보류 권장", "보증금을 잃을 수 있는 위험 신호가 {n}개 있어요. 해결되기 전에는 계약을 미루는 걸 권해요.")
 OV_YELLOW = ("yellow", "추가 확인 필요", "계약 전에 확인할 것이 {n}개 있어요.")
 OV_INCOMPLETE = (
     "yellow",
-    "확인 미완료",  # PRD v0.5 §7.3
+    "확인 미완료",
     "위험 신호는 찾지 못했지만, 꼭 확인해야 할 항목 {n}개를 확인하지 못했어요. 빠진 내용을 채운 뒤 다시 검사하세요.",
 )
 OV_GREEN = (
@@ -100,14 +100,14 @@ OV_GREEN = (
 )
 UNKNOWN_NOTE = "확인하지 못한 항목 {n}개"
 
-# PRD 12.4 (v0.3 changed "☎132" -> "국번 없이 132": PRD.md line 770)
+# disclaimer
 DISCLAIMER = (
     "이 결과는 올려주신 서류와 공개 데이터를 정해진 기준으로 확인한 참고 정보예요. "
     "법률 자문이 아니며 보증금의 안전을 보장하지 않아요. "
     "중요한 결정 전에는 대한법률구조공단(국번 없이 132) 등 전문가와 상의하세요."
 )
 
-# PRD 12.2
+# special terms
 ST_R12 = "임대인은 잔금일 다음 날까지 저당권 등 담보권을 설정하지 않는다. 위반 시 임차인은 계약을 해제할 수 있고, 임대인은 받은 금액 전부를 즉시 반환한다."
 ST_R6 = "임대인은 잔금일까지 등기부상 근저당권(채권최고액 {a})을 말소한다."
 ST_JEONSE = "임차인이 전세보증금 반환보증에 가입할 수 없는 경우 계약은 무효로 하며, 임대인은 계약금을 즉시 반환한다."
@@ -115,9 +115,9 @@ ST_ALWAYS = "임대인은 계약 체결 시 국세·지방세 납세증명서와
 ST_R2 = "임대인은 잔금일 전까지 수탁자(신탁회사)의 임대 동의서를 제출한다. 제출하지 못하면 임차인은 계약을 해제할 수 있고, 임대인은 받은 금액 전부를 즉시 반환한다."
 ST_NOTE = "실제로 쓰기 전에 공인중개사나 대한법률구조공단에 확인하세요."
 
-# PRD 12.1
+# request message
 MSG_HEAD = "안녕하세요. {addr} 임대차 계약 건으로 연락드립니다.\n계약 전에 아래 내용을 확인하고 싶습니다.\n\n"
-# v0.3: the long sentence is now one line (PRD.md line 742)
+# the long sentence is now one line
 MSG_TAIL = (
     "\n\n확정일자 부여현황과 납세증명서는 계약할 때 임대인이 보여주도록 주택임대차보호법에 정해져 있다고 알고 있습니다.\n"
     "계약일 전에 받아볼 수 있을까요? 감사합니다."
@@ -127,17 +127,17 @@ MI_R2 = ["신탁원부", "신탁회사(수탁자)의 임대 동의서"]
 MI_R1 = ["위임장", "인감증명서"]
 MI_R6 = ["근저당 대출을 잔금일에 갚고 말소할 계획인지"]
 
-BANNED = ["사기입니다", "안전합니다", "안전한 집", "보장합니다"]  # PRD 10
-# v0.3: the disclaimer no longer contains "☎" (PRD.md line 770), so U+260E is no longer exempt.
+BANNED = ["사기입니다", "안전합니다", "안전한 집", "보장합니다"]
+# the disclaimer no longer contains "☎", so U+260E is no longer exempt.
 EMOJI_RE = re.compile("[\U0001F300-\U0001FAFF☀-➿⭐⭕]")
-# PRD 7.4 공통 (line 464): 주민등록번호 형태 (가려진 것 포함), and the required mask in evidence quotes
+# 주민등록번호 형태 (가려진 것 포함), and the required mask in evidence quotes
 RRN_RE = re.compile(r"[0-9*]{6}-[0-9*]{7}")
 RRN_MASK = "******-*******"
-R1_NAME = "임대인·소유자 불일치"  # v0.3 rename: PRD.md lines 328, 621, 696
+R1_NAME = "임대인·소유자 불일치"
 
 
 def mask_rrn(text: str) -> str:
-    """Expected evidence quote per PRD 7.4 공통 (line 464)."""
+    """Expected evidence quote with 주민등록번호 masked."""
     return RRN_RE.sub(RRN_MASK, text)
 
 
@@ -149,7 +149,7 @@ def demo(name: str) -> dict:
 
 
 def p0(d: dict) -> dict:
-    """P0-only variant: building/market removed (PRD 11.2 note)."""
+    """P0-only variant: building/market removed."""
     d = copy.deepcopy(d)
     d["building"] = None
     d["market"] = None
@@ -198,7 +198,7 @@ def E(rank, purpose, received_at=None, cause=None, holders=(), amount=None, canc
 
 
 def won(n: int) -> str:
-    """PRD 7.1 금액 표시: 120000000 -> '1억 2,000만 원' (only for multiples of 10,000)."""
+    """금액 표시: 120000000 -> '1억 2,000만 원' (only for multiples of 10,000)."""
     if n == 0:
         return "0원"
     eok, rest = divmod(n, 100_000_000)
@@ -213,7 +213,7 @@ def won(n: int) -> str:
 
 
 def dre(d) -> str:
-    """Regex accepting common Korean renderings of a date (format is not fixed by the PRD)."""
+    """Regex accepting common Korean renderings of a date."""
     if isinstance(d, str):
         d = dt.date.fromisoformat(d)
     y, m, dd = d.year, d.month, d.day

@@ -1,8 +1,8 @@
 // 화면에 고정으로 들어가는 문구
 
 /**
- * 등기부만으로는 알 수 없는 것 (PRD 12.5 → PLAN.md 8장 표의 다섯 항목).
- * 내용은 PLAN.md 그대로이고, 화면 말투(해요체)에 맞게 끝맺음만 바꿨다.
+ * 등기부만으로는 알 수 없는 것.
+ * 화면 말투(해요체)에 맞춘 문구다.
  */
 export const OFF_REGISTRY_ROWS: { info: string; why: string; how: string }[] = [
   {
@@ -32,14 +32,14 @@ export const OFF_REGISTRY_ROWS: { info: string; why: string; how: string }[] = [
   },
 ]
 
-/** S1 하단 고지 한 줄 (PRD 4.2 S1) */
+/** S1 하단 고지 한 줄 */
 export const START_NOTICE =
   '법률 자문이 아니에요. 결과는 참고 정보이며 보증금의 안전을 보장하지 않아요.'
 
-/** 추천 특약 아래 안내 (PRD 12.2) */
+/** 추천 특약 아래 안내 */
 export const SPECIAL_TERMS_NOTE = '실제로 쓰기 전에 공인중개사나 대한법률구조공단에 확인하세요.'
 
-/** S5 하단 외부 연결 (PRD F13). 전화번호는 휴대폰에서 바로 걸 수 있게 tel: 링크로 둔다. */
+/** S5 하단 외부 연결. 전화번호는 휴대폰에서 바로 걸 수 있게 tel: 링크로 둔다. */
 export const HELP_LINKS: {
   name: string
   detail: string

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { digitsToNumber, formatWon, groupDigits } from '../lib/format'
 
-// 입력 칸은 모두 "라벨 | 입력" 한 줄로 그린다 (PRD 4.4 표). 휴대폰에서는 입력이 라벨 아래로 내려간다.
+// 입력 칸은 모두 "라벨 | 입력" 한 줄로 그린다. 휴대폰에서는 입력이 라벨 아래로 내려간다.
 
 interface FieldProps {
   label: string
@@ -93,7 +93,7 @@ export function TextField({
 
 /**
  * 길어질 수 있는 한 줄 글 (주소, 여러 명의 임대인 이름). 내용 길이에 맞춰 늘어나는 여러 줄 칸이라
- * 좁은 화면에서도 "302호"나 뒤쪽 이름이 잘리지 않는다 (PRD 4.2 S4). 값에 줄바꿈은 넣지 않는다.
+ * 좁은 화면에서도 "302호"나 뒤쪽 이름이 잘리지 않는다. 값에 줄바꿈은 넣지 않는다.
  */
 export function GrowingTextField({
   label,

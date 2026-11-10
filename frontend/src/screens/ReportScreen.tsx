@@ -21,7 +21,7 @@ import { formatDate, isoToLocalInput } from '../lib/format'
 import { maskIds } from '../lib/mask'
 import { useScreenFocus } from '../lib/useScreenFocus'
 
-/** S5 리포트: 보증금 위험 검토서 (PRD 4.2 S5, 4.3 와이어프레임) */
+/** S5 리포트: 보증금 위험 검토서 */
 export function ReportScreen({
   report,
   request,
@@ -255,7 +255,7 @@ export function ReportScreen({
   )
 }
 
-/** 등급별 개수: 위험 3건 · 주의 2건 · 해당 없음 8건 · 확인 못 함 1건 (0인 등급은 뺀다, PRD 4.2 S5) */
+/** 등급별 개수: 위험 3건 · 주의 2건 · 해당 없음 8건 · 확인 못 함 1건 */
 function CountsLine({ counts }: { counts: Counts }) {
   const items: ReactNode[] = []
   for (const level of ['red', 'yellow', 'green', 'unknown'] as const) {
@@ -324,7 +324,7 @@ function reviewTarget(req: CheckRequest, report: Report) {
       null
   }
 
-  // 기준일 (PRD 7.1): 계약서의 계약일 → 직접 입력한 계약 예정일 → 검사한 날(today)
+  // 기준일: 계약서의 계약일 → 직접 입력한 계약 예정일 → 검사한 날(today)
   const baseDate = contract?.contract_date ?? req.manual.contract_date ?? report.today
 
   // 확인한 서류: 등기부(열람일) · 계약서 · 직접 입력 · 건축물대장 · 시세

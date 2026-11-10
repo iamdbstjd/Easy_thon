@@ -1,4 +1,4 @@
-// 업로드 파일 확인과 계약서 사진 줄이기 (PRD F1·F2)
+// 업로드 파일 확인과 계약서 사진 줄이기
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024
 const LONG_EDGE_PX = 1600

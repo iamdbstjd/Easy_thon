@@ -1,7 +1,6 @@
-"""Round 3: black-box checks for rules added or changed in PRD v0.3 (§7.4, §12.1, §12.4).
+"""Round 3: black-box checks for the detailed rules (address/unit parsing, R10 order, masking, content).
 
-Every test cites the PRD.md line it checks. Tests whose name ends in `_interp` encode the
-verifier's reading of a passage the PRD leaves open (see report).
+Tests whose name ends in `_interp` encode the verifier's reading of a rule left open.
 """
 
 from __future__ import annotations
@@ -34,7 +33,7 @@ G, Y, R, U = "green", "yellow", "red", "unknown"
 
 
 # =============================================================================
-# R1 name (lines 328, 621, 696)
+# R1 name
 # =============================================================================
 def test_r1_name_renamed():
     assert RULE_NAMES["R1"] == R1_NAME
@@ -42,7 +41,7 @@ def test_r1_name_renamed():
 
 
 # =============================================================================
-# R10 decision order (lines 486-495)
+# R10 decision order
 # =============================================================================
 H_RES = "철근콘크리트구조 철근콘크리트지붕 4층 공동주택(다세대주택)"
 H_NONRES = "철근콘크리트구조 철근콘크리트지붕 5층 제2종근린생활시설"
@@ -65,7 +64,7 @@ def r10_yellow_summary(use, josa="이에요"):
 
 
 class TestR10Order:
-    # step 1: my floor's 층별 줄 with a use word decides (line 492)
+    # step 1: my floor's 층별 줄 with a use word decides
     def test_step1_floor_line_residential_beats_nonres_header(self):
         assert lv(r10([H_NONRES, "3층 다세대주택 112.30㎡"]), "R10") == G
 
@@ -80,7 +79,7 @@ class TestR10Order:
     def test_step1_floor_line_with_both_words_is_green(self):
         assert lv(r10([H_NONRES, "3층 다세대주택 및 제2종근린생활시설"]), "R10") == G
 
-    # step 2: floor line has only an area (line 493)
+    # step 2: floor line has only an area
     def test_step2_area_only_floor_lines_residential_header(self):
         lines = [H_RES, "1층 66.20㎡", "2층 112.30㎡", "3층 112.30㎡", "4층 98.10㎡"]
         r = res(run(r10(lines)), "R10")
@@ -101,12 +100,12 @@ class TestR10Order:
         r = res(run(r10([H_PLAIN, "3층 112.30㎡"])), "R10")
         assert r.level == U and r.unknown_reason
 
-    # step 2: my floor's line missing; other floors' 층별 줄 are not used (lines 489, 493)
+    # step 2: my floor's line missing; other floors' 층별 줄 are not used
     def test_step2_missing_floor_line_uses_header_not_other_floors(self):
         assert lv(r10([H_RES, "1층 제2종근린생활시설"]), "R10") == G
         assert lv(r10(["철근콘크리트구조 철근콘크리트지붕 2층 제2종근린생활시설", "1층 다세대주택"]), "R10") == Y
 
-    # header is never a 층별 줄 even if it names my floor (line 489)
+    # header is never a 층별 줄 even if it names my floor
     @pytest.mark.parametrize("floor,ho", [("4층", "402호"), ("3층", "302호")])
     def test_header_floor_count_is_not_a_floor_line(self, floor, ho):
         lines = ["철근콘크리트구조 철근콘크리트지붕 4층 제2종근린생활시설", "1층 다세대주택"]
@@ -116,7 +115,7 @@ class TestR10Order:
         assert lv(r10([H_RES, "4층 제2종근린생활시설"], floor="4층", ho="402호"), "R10") == Y
         assert lv(r10([H_RES, "4층 98.10㎡"], floor="4층", ho="402호"), "R10") == G
 
-    # split header layouts: the use word sits on its own 기타 줄 (line 489, 493)
+    # split header layouts: the use word sits on its own 기타 줄
     def test_split_header_use_on_other_line_residential(self):
         lines = ["철근콘크리트구조 (철근)콘크리트지붕 4층", "공동주택(다세대주택)", "1층 66.20㎡", "3층 112.30㎡"]
         assert lv(r10(lines), "R10") == G
@@ -140,20 +139,20 @@ class TestR10Order:
     def test_header_plus_nonresidential_other_line_is_mixed(self):
         assert lv(r10([H_RES, "부속건물 창고 20.00㎡"]), "R10") == U
 
-    # floor unknown -> step 2 (line 493 "층을 모르면")
+    # floor unknown -> step 2
     def test_floor_unknown_two_digit_ho_uses_header(self):
         assert lv(r10([H_RES, "1층 제2종근린생활시설"], floor=None, ho="12호"), "R10") == G
 
     def test_floor_and_ho_unknown_uses_header(self):
         assert lv(r10([H_NONRES], floor=None, ho=None), "R10") == Y
 
-    # basement ho (지하·지·B·비) -> ⚪ (line 490)
+    # basement ho (지하·지·B·비) -> ⚪
     @pytest.mark.parametrize("ho", ["지하102호", "지102호", "B102호", "비102호"])
     def test_basement_ho_unknown(self, ho):
         r = res(run(r10([H_RES, "지하1층 다세대주택", "1층 다세대주택"], floor=None, ho=ho)), "R10")
         assert r.level == U and r.unknown_reason
 
-    # 건물 등기부 (line 494)
+    # 건물 등기부
     @pytest.mark.parametrize(
         "lines,level",
         [
@@ -168,7 +167,7 @@ class TestR10Order:
 
 
 # =============================================================================
-# R11 호 normalization + address reading (lines 496-504)
+# R11 호 normalization + address reading
 # =============================================================================
 A_ADDR = "경기도 용인시 수지구 죽전동 123-4 죽전○○빌라 302호"
 
@@ -261,13 +260,13 @@ class TestR11V03:
         assert lv(d, "R11") == G
 
     def test_glued_villa_name_ending_in_ji_interp(self):
-        """'죽전빌리지302호': the 지 belongs to the building name, not a basement marker (reading of line 503-504)."""
+        """'죽전빌리지302호': the 지 belongs to the building name, not a basement marker."""
         d = r11(addr="경기도 용인시 수지구 죽전동 123-4 죽전빌리지302호", c_ho=None, r_ho="302호")
         assert lv(d, "R11") == G
 
 
 # =============================================================================
-# R8 date formats (line 485)
+# R8 date formats
 # =============================================================================
 def r8(cause, received="2026-10-01"):
     d = demo("A")
@@ -299,7 +298,7 @@ def test_r8_cause_that_is_only_a_date(cause):
 
 
 # =============================================================================
-# R3 multi-record wording (line 482)
+# R3 multi-record wording
 # =============================================================================
 TAIL3 = "기록이 있어요. 집이 경매로 넘어가거나 소유자가 바뀔 수 있어요."
 
@@ -338,7 +337,7 @@ def test_r3_single_record_keeps_7_2_template():
 
 
 # =============================================================================
-# Holderless same-rank 신탁 rows (line 474)
+# Holderless same-rank 신탁 rows
 # =============================================================================
 TRUST_SRC = "3 소유권이전 2026년8월26일 제98766호 2026년8월26일 신탁 수탁자 ○○부동산신탁주식회사"
 
@@ -382,7 +381,7 @@ def test_holderless_trust_only_row_keeps_previous_owner():
 
 
 # =============================================================================
-# 주민등록번호 masking (line 464; §10 line 665)
+# 주민등록번호 masking
 # =============================================================================
 class TestRrnMasking:
     def test_names_in_r1_summary(self):
@@ -453,7 +452,7 @@ class TestRrnMasking:
 
 
 # =============================================================================
-# R1 manual wording (line 480)
+# R1 manual wording
 # =============================================================================
 @pytest.mark.parametrize("with_contract", [False, True])
 def test_r1_manual_landlord_wording(with_contract):
@@ -468,7 +467,7 @@ def test_r1_manual_landlord_wording(with_contract):
 
 
 # =============================================================================
-# R5 typed market price first (line 483, F8 line 247)
+# R5 typed market price first
 # =============================================================================
 def test_r5_manual_market_label_and_evidence():
     d = demo("A")
@@ -482,7 +481,7 @@ def test_r5_manual_market_label_and_evidence():
 
 
 # =============================================================================
-# §12.1 근저당 item only with 저당 rows (lines 513, 734)
+# §12.1 근저당 item only with 저당 rows
 # =============================================================================
 @pytest.mark.parametrize(
     "rows,expected",
@@ -503,7 +502,7 @@ def test_12_1_mortgage_item_needs_mortgage_row(rows, expected):
 
 
 # =============================================================================
-# 조사 after closing brackets (line 463)
+# 조사 after closing brackets
 # =============================================================================
 @pytest.mark.parametrize(
     "landlord,ending",
@@ -523,7 +522,7 @@ def test_josa_brackets(landlord, ending):
 # =============================================================================
 @pytest.mark.parametrize("masked", ["850315-1xxxxxx", "850315-1○○○○○○", "850315-1●●●●●●"])
 def test_rrn_with_other_mask_chars_in_names(masked):
-    """7.4 line 476 (이름 비교 때 주민등록번호 형식, 가려진 것 포함) and line 464 (화면 문구에 넣지 않는다).
+    """이름 비교 때 주민등록번호 형식(가려진 것 포함)을 지우고, 화면 문구에 넣지 않는다.
 
     The engine's own evidence masker already treats x/○/● as mask characters; names do not.
     """
@@ -537,7 +536,7 @@ def test_rrn_with_other_mask_chars_in_names(masked):
 
 
 def test_holderless_transfer_with_own_rank_is_not_green_interp():
-    """Reading of line 474 + principle 1.3-4 ("모르면 모른다고 한다"): only the split same-rank row
+    """Reading of the holderless-row rule + the principle ("모르면 모른다고 한다"): only the split same-rank row
     (e.g. "3 신탁") is exempt. A full 소유권이전 with its own rank and unreadable holders means the
     current owner is unknown, so R1 must not compare the landlord with the previous owner."""
     d = demo("A")

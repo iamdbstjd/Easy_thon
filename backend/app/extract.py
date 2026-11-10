@@ -1,10 +1,10 @@
-"""Claude로 등기부·계약서를 읽어 8.1·8.2 형식으로 옮긴다 (PRD 6장).
+"""Claude로 등기부·계약서를 읽어 8.1·8.2 형식으로 옮긴다.
 
 - AI는 읽기만 한다. 위험 판단은 app/rules가 한다.
 - 등기부와 계약서는 병렬로 따로 호출한다.
 - 두 문서를 합쳐 마감 시간(EXTRACT_DEADLINE_SECONDS, 기본 85초) 안에 끝내거나 AI_FAILED로 실패한다.
-  화면은 90초에 포기하므로(PRD S3) 그보다 짧다. SDK 자동 재시도는 끄고, 일시적인 오류
-  (연결·timeout, 5xx, 429)는 마감 안에서 문서마다 한 번만 직접 다시 부른다 (PRD 6장).
+  화면은 90초에 포기하므로 그보다 짧다. SDK 자동 재시도는 끄고, 일시적인 오류
+  (연결·timeout, 5xx, 429)는 마감 안에서 문서마다 한 번만 직접 다시 부른다.
 - 로그에는 문서 종류, stop_reason, 토큰 수, 걸린 시간만 남긴다 (문서 내용·이름·주소는 남기지 않는다).
 - 테스트에서는 _client를 가짜 객체로 바꿔 끼운다 (네트워크를 쓰지 않는다).
 """
@@ -42,7 +42,7 @@ from app.uploads import DocInput
 # ---------------------------------------------------------------------------
 
 MODEL = "claude-opus-5-5"
-EFFORT = "medium"  # PRD 6장: medium에서 시작해 충분하면 low로 낮춘다
+EFFORT = "medium"  # medium에서 시작해 충분하면 low로 낮춘다
 MAX_TOKENS = 16000
 RETRY_MAX_TOKENS = 32000  # stop_reason == "max_tokens"면 한 번만 이 값으로 다시 부른다
 BETAS = ["server-side-fallback-2026-07-01"]

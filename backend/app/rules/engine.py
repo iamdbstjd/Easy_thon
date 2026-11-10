@@ -1,4 +1,4 @@
-"""규칙 엔진 (PRD 7장): R1–R13 판정, 종합 판정, 리포트 조립.
+"""규칙 엔진: R1–R13 판정, 종합 판정, 리포트 조립.
 
 - AI나 외부 API를 부르지 않는다. 같은 입력이면 generated_at 말고는 같은 결과가 나온다.
 - 규칙은 서로 독립적으로 계산한다. 한 규칙이 실패해도 그 규칙만 ⚪가 된다.
@@ -57,7 +57,7 @@ from .common import (
 
 logger = logging.getLogger(__name__)
 
-# 기준값 (PRD 7.2)
+# 기준값
 RATIO_DANGER = Fraction(8, 10)  # R5 🔴
 RATIO_WARN = Fraction(7, 10)  # R5 🟡
 RECENT_OWNERSHIP_DAYS = 90  # R8
@@ -81,7 +81,7 @@ class Ctx:
     contract: Optional[ContractExtract]
     manual: ManualInput
     today: dt.date
-    base_date: dt.date  # 기준일 (PRD 7.1)
+    base_date: dt.date  # 기준일
     gapgu: list[Entry]  # 유효 항목만
     eulgu: list[Entry]
 
@@ -165,7 +165,7 @@ def _merge_names(base: list[str], extra: list[str]) -> list[str]:
     return merged
 
 
-# --- 현재 소유권 (PRD 7.1) ---
+# --- 현재 소유권 ---
 
 _OWNERSHIP_WORDS = ("소유권보존", "소유권이전", "소유권일부이전")
 _SHARE_SELLER = re.compile(r"\d+(?:-\d+)?번(.+?)지분전부이전")
@@ -194,7 +194,7 @@ class Ownership:
 
 
 def current_ownership(gapgu: list[Entry]) -> Optional[Ownership]:
-    """유효 갑구에서 소유권보존·이전 항목 중 마지막 것과 그 소유자 (PRD 7.1, 7.4).
+    """유효 갑구에서 소유권보존·이전 항목 중 마지막 것과 그 소유자.
 
     - 일부이전·지분이전은 앞선 소유자에 더한다 (공동소유).
     - 권리자가 비어 있는 행:
@@ -338,7 +338,7 @@ class Market:
 
 
 def market_of(ctx: Ctx) -> Optional[Market]:
-    """시세: 사용자가 직접 입력한 값 → 조회한 시세 순서 (PRD 7.4 R5, F8). 0 이하 입력은 입력하지 않은 것으로 본다."""
+    """시세: 사용자가 직접 입력한 값 → 조회한 시세 순서. 0 이하 입력은 입력하지 않은 것으로 본다."""
     price = ctx.manual.market_price
     if price is not None and price > 0:
         text = f"알고 있는 시세(직접 입력): {fmt_money(price)}"
@@ -389,7 +389,7 @@ def _green(rid: str, evidence: Optional[list[Evidence]] = None, summary: str = "
 
 
 # ---------------------------------------------------------------------------
-# R1–R13 (PRD 7.2)
+# R1–R13
 # ---------------------------------------------------------------------------
 
 
@@ -746,7 +746,7 @@ def _r10_from_lines(lines: list[str], mixed_is_unknown: bool) -> RuleResult:
 
 
 def rule_r10(ctx: Ctx) -> RuleResult:
-    """주거용이 아닌 용도 (PRD 7.2, 7.4). 건축물대장 값이 있으면 그 값, 없으면 등기부 표제부 용도 줄."""
+    """주거용이 아닌 용도. 건축물대장 값이 있으면 그 값, 없으면 등기부 표제부 용도 줄."""
     b = ctx.req.building
     if b is not None:
         unit_use, main_use = (b.unit_use or "").strip(), (b.main_use or "").strip()
@@ -788,7 +788,7 @@ _R11_RED_ACTION = "계약서와 전입신고에 등기부 표기를 그대로 �
 
 
 def rule_r11(ctx: Ctx) -> RuleResult:
-    """주소·호수 불일치 (PRD 7.2, 7.4: 위에서부터 처음 맞는 것)."""
+    """주소·호수 불일치."""
     c = ctx.contract
     if c is None:
         return _unknown("R11", "계약서가 없어 주소를 비교하지 못했어요")
@@ -947,7 +947,7 @@ def _mortgage_amount(ctx: Ctx) -> Optional[str]:
 
 
 def build_report(req: CheckRequest) -> Report:
-    """CheckRequest를 받아 PRD 7장 규칙을 모두 계산하고 Report를 돌려준다.
+    """CheckRequest를 받아 R1–R13 규칙을 모두 계산하고 Report를 돌려준다.
 
     - AI나 외부 API를 부르지 않는다 (같은 입력이면 같은 결과).
     - req.today가 없으면 현재 한국 날짜를 쓴다.

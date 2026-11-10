@@ -1,5 +1,5 @@
 // 개발용 가짜 데이터. 주소에 ?mock=1이 있을 때만 쓴다 (src/api/client.ts).
-// PRD 11장 시나리오 A·B·C와 7.2 문구를 따른다. 실제 데모 데이터는 백엔드 demo/*.json이 기준이다.
+// 예시 A·B·C와 규칙 문구를 따른다. 실제 예시 데이터는 백엔드 demo/*.json이 기준이다.
 
 import type { CheckRequest, Report, RuleResult } from '../api/types'
 import { RULE_NAMES } from '../api/types'
@@ -593,7 +593,7 @@ export const REPORT_A: Report = {
 
 /**
  * 시나리오 A에서 임대인 이름을 지우고 검사했을 때 (가짜 API 전용).
- * 핵심 규칙 R1을 확인하지 못해 종합 판정이 "확인이 끝나지 않았어요"가 된다 (PRD 7.3).
+ * 핵심 규칙 R1을 확인하지 못해 종합 판정이 "확인이 끝나지 않았어요"가 된다.
  */
 export const REPORT_A_INCOMPLETE: Report = {
   ...REPORT_A,

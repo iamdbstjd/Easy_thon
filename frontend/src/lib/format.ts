@@ -13,7 +13,7 @@ export function groupDigits(digits: string): string {
 }
 
 /**
- * 원 단위 정수를 한국식 단위로 쓴다 (PRD 7.1 금액 표시).
+ * 원 단위 정수를 한국식 단위로 쓴다.
  * 120000000 → "1억 2,000만 원", 450000 → "45만 원", 12345678 → "1,234만 5,678원"
  */
 export function formatWon(n: number | null | undefined): string {

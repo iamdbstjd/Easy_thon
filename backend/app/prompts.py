@@ -1,4 +1,4 @@
-"""Claude 추출용 프롬프트와 JSON 스키마 (PRD 6장, 8.1·8.2).
+"""Claude 추출용 프롬프트와 JSON 스키마.
 
 정확도를 조정할 때는 이 파일만 고친다.
 - 스키마 필드는 app/schemas.py의 Pydantic 모델과 이름이 같아야 한다 (tests/test_extract.py가 확인한다).

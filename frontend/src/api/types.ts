@@ -242,7 +242,7 @@ export interface ErrorResponse {
   error: ErrorDetail
 }
 
-/** 규칙 ID와 이름 (PRD 7.2 소제목) */
+/** 규칙 ID와 이름 */
 export const RULE_NAMES: Record<string, string> = {
   R1: '임대인·소유자 불일치',
   R2: '신탁등기',

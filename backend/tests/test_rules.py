@@ -1,4 +1,4 @@
-"""규칙 엔진 단위 테스트 (PRD 7장 R1–R13, 7.3 종합 판정, 12장 문구)."""
+"""규칙 엔진 단위 테스트."""
 
 from __future__ import annotations
 
@@ -250,7 +250,7 @@ def test_mask_id_numbers(text, masked):
         ("매매", "예요", "로"),
         ("신탁", "이에요", "으로"),
         ("상속", "이에요", "으로"),
-        ("이○○", "이에요", "으로"),  # 판단할 수 없으면 PRD 문구 그대로
+        ("이○○", "이에요", "으로"),  # 판단할 수 없으면 기본 조사 그대로
         ("김민수", "예요", "로"),
         ("제2종근린생활시설", "이에요", "로"),
         ("제2종근린생활시설(사무소)", "예요", "로"),
@@ -422,13 +422,13 @@ def test_address_has_road(address, expected):
         ("제302호", "302"),
         ("302", "302"),
         ("제 302 호", "302"),
-        ("B302호", "B302"),  # 지하 표시는 호수의 일부다 (PRD 7.4)
+        ("B302호", "B302"),  # 지하 표시는 호수의 일부다
         ("b302", "B302"),
         ("지하102호", "B102"),
         ("지102호", "B102"),
         ("비102호", "B102"),
         ("302-1호", "302-1"),
-        ("0302호", "302"),  # 숫자 앞의 0은 무시한다 (PRD 7.4)
+        ("0302호", "302"),  # 숫자 앞의 0은 무시한다
         ("B0102호", "B102"),
         ("100호", "100"),
         ("", None),
@@ -521,7 +521,7 @@ def test_empty_request_returns_unknowns_without_error():
         if r.level == "unknown":
             assert r.unknown_reason
     assert report.counts == Counts(red=0, yellow=0, unknown=11, green=2)
-    # 핵심 규칙(R1·R2·R3·R7·R8·R13)이 모두 ⚪이므로 "큰 위험 신호 없음"이 아니다 (PRD 7.3)
+    # 핵심 규칙(R1·R2·R3·R7·R8·R13)이 모두 ⚪이므로 "큰 위험 신호 없음"이 아니다
     assert report.overall.level == "yellow"
     assert report.overall.title == "확인 미완료"
     assert report.overall.message == (
@@ -704,7 +704,7 @@ def test_r1_uses_manual_landlord_when_no_contract():
     r = rule(req, "R1")
     assert r.level == "red"
     assert r.evidence[-1].doc == "manual"
-    # 직접 입력한 이름이면 "계약서의 임대인은" 대신 "입력한 임대인은" (PRD 7.4)
+    # 직접 입력한 이름이면 "계약서의 임대인은" 대신 "입력한 임대인은"
     assert r.summary == "등기부상 소유자는 김○○인데, 입력한 임대인은 이○○이에요."
 
 
@@ -727,7 +727,7 @@ def test_r1_never_shows_id_numbers():
 
 
 def test_r1_split_trust_row_without_holders_keeps_owner():
-    """"3 소유권이전 … 수탁자" 다음에 같은 순위번호의 "3 신탁"(권리자 없음)이 와도 소유자는 수탁자다 (PRD 7.4)."""
+    """"3 소유권이전 … 수탁자" 다음에 같은 순위번호의 "3 신탁"(권리자 없음)이 와도 소유자는 수탁자다."""
     req = base_request()
     req.registry.gapgu += [
         entry("3", "소유권이전", dt.date(2026, 8, 26), "신탁", ["○○부동산신탁(주)"]),
@@ -741,7 +741,7 @@ def test_r1_split_trust_row_without_holders_keeps_owner():
 
 
 def test_r1_holderless_transfer_with_own_rank_means_owner_unknown():
-    """순위번호가 따로 있는 이전 행인데 권리자가 비어 있으면 현재 소유자를 모른다 (PRD 7.4). 이전 소유자로 비교하지 않는다."""
+    """순위번호가 따로 있는 이전 행인데 권리자가 비어 있으면 현재 소유자를 모른다. 이전 소유자로 비교하지 않는다."""
     req = base_request()
     req.registry.gapgu = [
         entry("1", "소유권보존", dt.date(2015, 3, 10), None, ["김○○"]),
@@ -1113,7 +1113,7 @@ def test_r5_market_price_sources():
     assert "시세(1억 원, 직접 입력)의 10%예요." in r.summary
     assert r.evidence[-1].doc == "manual"
 
-    # 사용자가 직접 입력한 시세가 조회한 시세보다 먼저다 (PRD 7.4 R5, F8)
+    # 사용자가 직접 입력한 시세가 조회한 시세보다 먼저다
     req.market = MarketPrice(price=200_000_000, method="same_building", deals=2, period="2025-12 ~ 2026-11")
     r = rule(req, "R5")
     assert "시세(1억 원, 직접 입력)의 10%예요." in r.summary
@@ -1410,7 +1410,7 @@ def test_r10_floor_from_ho_when_floor_missing():
 
 
 def test_r10_realistic_area_only_floor_lines_use_whole_building_line():
-    """실제 표제부: 층별 줄에는 면적만 있고 용도는 건물 전체 줄에만 있다 (PRD 7.4 R10 2단계)."""
+    """실제 표제부: 층별 줄에는 면적만 있고 용도는 건물 전체 줄에만 있다."""
     lines = [HEADER_RES, "1층 66.20㎡", "2층 112.30㎡", "3층 112.30㎡", "4층 98.10㎡"]
     r = registry_r10(lines)
     assert r.level == "green"
@@ -2071,7 +2071,7 @@ def test_report_metadata():
         "법률 자문이 아니며 보증금의 안전을 보장하지 않아요. "
         "중요한 결정 전에는 대한법률구조공단(국번 없이 132) 등 전문가와 상의하세요."
     )
-    assert "☎" not in report.disclaimer  # Pretendard에 없는 글자 (PRD 12.4)
+    assert "☎" not in report.disclaimer  # Pretendard에 없는 글자
 
 
 def test_today_defaults_to_korean_date():
@@ -2107,7 +2107,7 @@ def test_request_message_template_and_items():
 
 
 def test_request_message_never_breaks_inside_a_sentence():
-    """줄바꿈은 문장 끝이나 문단 사이에서만 한다 (휴대폰·메신저에 붙여 넣는 글, PRD 12.1)."""
+    """줄바꿈은 문장 끝이나 문단 사이에서만 한다."""
     message = build_report(base_request()).request_message
     for line in message.split("\n"):
         assert line == "" or line.endswith((".", "?")) or line[0].isdigit(), line

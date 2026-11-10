@@ -1,4 +1,4 @@
-"""FastAPI 앱 (PRD 9장).
+"""FastAPI 앱.
 
 실행 (backend 폴더에서): .venv/bin/uvicorn app.main:app --port 8000
 API 키 없이도 /api/health, /api/demo, /api/check, /api/checklist.ics는 동작한다.
@@ -189,7 +189,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="자취방 보증금 지킴이 API",
     version="0.1.0",
-    description="등기부·계약서 추출(Claude)과 위험 신호 검사(규칙 엔진). PRD 9장.",
+    description="등기부·계약서 추출(Claude)과 위험 신호 검사(규칙 엔진).",
     lifespan=lifespan,
 )
 app.add_middleware(RequestContextMiddleware)
@@ -270,7 +270,7 @@ async def extract_route(
 ) -> ExtractResponse:
     """등기부(필수)와 계약서(선택)를 Claude로 읽어 8.1·8.2 형식으로 돌려준다. 파일은 저장하지 않는다.
 
-    응답의 모든 문자열에서 주민등록번호 모양은 "******-*******"로 가린다 (PRD 10장).
+    응답의 모든 문자열에서 주민등록번호 모양은 "******-*******"로 가린다.
     """
     registry_doc = await run_in_threadpool(uploads.validate_registry, await _read_upload(registry))
     contract_doc = None
@@ -281,10 +281,10 @@ async def extract_route(
 
 
 def fill_public_data(req: CheckRequest) -> CheckRequest:
-    """TODO(P1, PRD F8·F9): 비어 있는 building·market을 공공 API로 채운다. 지금은 그대로 돌려준다.
+    """TODO: 비어 있는 building·market을 공공 API로 채운다. 지금은 그대로 돌려준다.
 
     - 등기부 주소 → 도로명주소 API(법정동코드·지번) → 건축물대장 API(용도, 위반 여부) → building
-    - 실거래가 API(최근 12개월, PRD F8 시세 추정 규칙) → market
+    - 실거래가 API → market
     - 호출당 타임아웃 5초. 실패하면 비워 둔다 (해당 규칙만 ⚪, 오류로 처리하지 않는다).
     - 같은 (시군구코드, 계약년월) 응답은 메모리에 캐시한다.
     - 구현하면 /api/health의 public_api_ready도 키 설정 여부로 바꾼다.
@@ -298,7 +298,7 @@ def check_route(req: CheckRequest) -> Report:
     if req.today is None:
         req = req.model_copy(update={"today": today_kst()})
     if req.mode == "live" and (req.building is None or req.market is None):
-        req = fill_public_data(req)  # 데모 모드에서는 외부 API를 부르지 않는다 (PRD F7)
+        req = fill_public_data(req)  # 데모 모드에서는 외부 API를 부르지 않는다
     return build_report(req)
 
 

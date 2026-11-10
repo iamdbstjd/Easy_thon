@@ -1,7 +1,6 @@
-"""PRD.md 8장(데이터 명세)을 코드로 옮긴 Pydantic 모델.
+"""데이터 형식 (Pydantic 모델).
 
 백엔드, 프론트엔드, 데모 데이터가 주고받는 필드 이름과 타입은 이 파일이 기준이다.
-바꿀 때는 PRD.md 8장을 먼저 고친다.
 """
 
 from __future__ import annotations
@@ -240,7 +239,7 @@ class ErrorResponse(Model):
     error: ErrorDetail
 
 
-# 규칙 ID와 이름 (PRD 7.2 소제목)
+# 규칙 ID와 이름
 RULE_NAMES: dict[str, str] = {
     "R1": "임대인·소유자 불일치",
     "R2": "신탁등기",

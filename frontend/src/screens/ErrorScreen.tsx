@@ -20,7 +20,7 @@ const BACK_LABELS: Record<ErrorPhase, string> = {
   demo: '처음으로',
 }
 
-/** S3 오류: [다시 시도] + 예시 결과 보기 (PRD 4.2 S3) */
+/** S3 오류: [다시 시도] + 예시 결과 보기 */
 export function ErrorScreen({
   phase,
   message,

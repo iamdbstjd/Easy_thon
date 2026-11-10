@@ -1,4 +1,4 @@
-"""Per-rule black-box tests (PRD 7.1, 7.2, 7.4). Written from PRD.md only."""
+"""Per-rule black-box tests. Written from the spec only."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ class TestR1:
         assert r.summary == "등기부상 소유자는 ○○부동산신탁(주)인데, 계약서의 임대인은 이○○이에요."
 
     def test_red_evidence(self):
-        # v0.3: evidence quotes mask 주민등록번호 형태 as "******-*******", rest verbatim (PRD.md line 464)
+        # evidence quotes mask 주민등록번호 형태 as "******-*******", rest verbatim
         from verify_helpers import mask_rrn
 
         d = demo("C")
@@ -131,7 +131,7 @@ class TestR1:
         assert lv(owner_req([bojon("김철수")], [], manual_landlord="박민수"), "R1") == R
 
     def test_contract_landlord_preferred_over_manual(self):
-        """Ambiguous PRD: 7.1 기준일 order is 계약서 → 직접 입력; assumed same for 임대인."""
+        """Ambiguous: 기준일 order is 계약서 → 직접 입력; assumed same for 임대인."""
         assert lv(owner_req([bojon("김철수")], ["김철수"], manual_landlord="박민수"), "R1") == G
 
     @pytest.mark.parametrize(
@@ -538,7 +538,7 @@ class TestR5:
         assert r.level == R and "80%" in r.summary
 
     def test_manual_market_preferred_over_market_price(self):
-        # v0.3 reversed the order: typed manual.market_price wins (PRD.md line 483; F8 line 247)
+        # typed manual.market_price wins
         r = res(run(r5_req(80_000_000, 100_000_000, manual_market=1_000_000_000)), "R5")
         assert r.level == G and "의 8%" in r.summary, r.summary
         assert "시세(10억 원" in r.summary, r.summary
@@ -570,7 +570,7 @@ class TestR5:
         assert lv(d, "R5") == R
 
     def test_contract_deposit_preferred_over_manual(self):
-        """Ambiguous PRD: assumed 계약서 → 직접 입력 order (as 7.1 기준일)."""
+        """Ambiguous: assumed 계약서 → 직접 입력 order (as for 기준일)."""
         d = r5_req(10_000_000)
         d["manual"]["deposit"] = 80_000_000
         assert lv(d, "R5") == G
@@ -594,7 +594,7 @@ class TestR5:
         r = res(run(demo("C")), "R5")
         mk = [e for e in r.evidence if e.doc == "market"]
         assert mk, r.evidence
-        # PRD v0.5: 시세 근거의 기간은 "YYYY년 M월 ~ YYYY년 M월"로 표기
+        # 시세 근거의 기간은 "YYYY년 M월 ~ YYYY년 M월"로 표기
         assert any("2025년 12월 ~ 2026년 11월" in e.text and "2" in e.text for e in mk), mk
 
     def test_manual_market_evidence_doc(self):

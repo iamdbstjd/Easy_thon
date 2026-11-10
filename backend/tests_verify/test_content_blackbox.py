@@ -1,4 +1,4 @@
-"""PRD 12.1–12.4 content and 7.4 '콘텐츠' rules. Written from PRD.md only."""
+"""Content checks: request message, special terms, checklist, disclaimer. Written from the spec only."""
 
 from __future__ import annotations
 
@@ -92,8 +92,8 @@ def test_12_1_agent_adds_power_of_attorney():
 
 
 def test_12_1_r6_yellow_from_jeonse_right_only_has_no_mortgage_item():
-    # v0.3 made this explicit: "R6 🟡이고 저당 행이 있을 때" (PRD.md line 734) and
-    # "전세권만으로 R6가 🟡이면 넣지 않는다" (PRD.md line 513)
+    # Explicit rule: "R6 🟡이고 저당 행이 있을 때" and
+    # "전세권만으로 R6가 🟡이면 넣지 않는다"
     d = demo("A")
     d["registry"]["eulgu"] = [E("1", "전세권설정", "2020-01-01", "설정계약", ["홍길동"], 100_000_000)]
     items = _items(run(d))

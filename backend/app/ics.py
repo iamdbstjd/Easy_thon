@@ -1,6 +1,6 @@
-"""계약 일정 체크리스트 → iCalendar(.ics) 파일 (PRD F12, RFC 5545).
+"""계약 일정 체크리스트 → iCalendar(.ics) 파일.
 
-- PRD F12대로 잔금일·입주일 항목(날짜가 있는 것)만 종일 일정으로 만든다.
+- 잔금일·입주일 항목(날짜가 있는 것)만 종일 일정으로 만든다.
 - 일정이 하나도 없어도 RFC 5545상 올바른 파일이 되도록(구성요소 1개 이상) Asia/Seoul VTIMEZONE을 항상 넣는다.
 - 알림은 하루 전 09:00이다. 종일 일정은 그날 0시에 시작하므로 15시간 전(-PT15H)이다.
 - 줄 끝은 CRLF이고, 75바이트를 넘는 줄은 UTF-8 글자를 자르지 않고 접는다.
@@ -19,7 +19,7 @@ PRODID = "-//Bojeunggeum Jikimi//Checklist 0.1//KO"
 CALENDAR_NAME = "보증금 지킴이 계약 일정"
 SUMMARY_PREFIX = "[보증금 지킴이]"
 ALARM_TRIGGER = "-PT15H"
-EVENT_WHENS = ("잔금일", "입주일")  # 캘린더에 넣는 체크리스트 시점 (PRD F12)
+EVENT_WHENS = ("잔금일", "입주일")  # 캘린더에 넣는 체크리스트 시점
 TIMEZONE_LINES = [  # 한국은 서머타임이 없어 STANDARD 하나로 충분하다
     "BEGIN:VTIMEZONE",
     "TZID:Asia/Seoul",

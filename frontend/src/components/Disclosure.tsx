@@ -2,7 +2,7 @@ import { useId, useState } from 'react'
 import type { ReactNode } from 'react'
 
 /**
- * 접어 두는 구역. 제목 줄 전체가 버튼이고, 오른쪽에 "펼치기 / 접기"를 밑줄 글자로 둔다 (PRD 4.3).
+ * 접어 두는 구역. 제목 줄 전체가 버튼이고, 오른쪽에 "펼치기 / 접기"를 밑줄 글자로 둔다.
  * 제목(h2·h3) 안에 aria-expanded 버튼을 두어 제목 목차가 유지되고 키보드·화면 낭독기로 쓸 수 있다.
  * defaultOpen은 처음 그릴 때만 쓴다.
  */

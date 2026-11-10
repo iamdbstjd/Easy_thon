@@ -1,4 +1,4 @@
-"""규칙 엔진 공통 도구 (PRD 7.1): 날짜, 이름·주소 정리, 층 찾기, 금액·비율 표시."""
+"""규칙 엔진 공통 도구: 날짜, 이름·주소 정리, 층 찾기, 금액·비율 표시."""
 
 from __future__ import annotations
 
@@ -63,12 +63,12 @@ def compact(text: Optional[str]) -> str:
     return _WS.sub("", text or "")
 
 
-# 회사 표기 (PRD 7.1, 7.4)
+# 회사 표기
 _COMPANY_MARKS = ("(주)", "（주）", "㈜", "주식회사", "유한회사", "(유)", "（유）")
 # 이름에 잘못 붙어 올 수 있는 역할어
 ROLE_WORDS = ("근저당권자", "수탁자", "소유자", "공유자", "채권자", "임대인", "임차인")
 # 주민·법인등록번호 형식 (######-#######). 숫자 대신 *·x·○·● 등으로 가린 것도 포함한다.
-# 이름 비교, 화면용 이름, 근거 원문 가리기에 모두 이 형식을 쓴다 (PRD 7.4, 10장)
+# 이름 비교, 화면용 이름, 근거 원문 가리기에 모두 이 형식을 쓴다
 _ID_CHAR = r"[0-9*＊xX○●•]"
 _ID_NUMBER = re.compile(rf"(?<![0-9]){_ID_CHAR}{{6}}\s*-\s*{_ID_CHAR}{{7}}")
 _ROLE_PREFIX = re.compile(r"^(?:" + "|".join(ROLE_WORDS) + r")\s*")
@@ -241,7 +241,7 @@ def line_has_floor(line: str, floor: Floor) -> bool:
 
 
 def is_header_line(line: str) -> bool:
-    """건물 전체 줄: "구조"나 "지붕"이 있는 줄. 층수가 적혀 있어도 층별 줄이 아니다 (PRD 7.4)."""
+    """건물 전체 줄: "구조"나 "지붕"이 있는 줄. 층수가 적혀 있어도 층별 줄이 아니다."""
     t = compact(line)
     return "지붕" in t or "구조" in t
 
@@ -276,7 +276,7 @@ _LOT_RE = re.compile(r"(산)?(\d+)(?:-(\d+))?")
 
 
 def tidy_address(text: Optional[str]) -> str:
-    """비교 전 정리 (PRD R11): 공백을 하나로, "번지"와 숫자 앞 "제"를 지운다."""
+    """비교 전 정리: 공백을 하나로, "번지"와 숫자 앞 "제"를 지운다."""
     t = _HYPHENS.sub("-", text or "")
     t = re.sub(r"\s*번지", "", t)
     t = re.sub(r"제\s*(?=\d)", "", t)
@@ -343,7 +343,7 @@ _BASEMENT_FLOOR_BEFORE = re.compile(r"(?:지하|(?<![가-힣])[지비]|(?<![A-Za
 
 
 def unit_key(text: Optional[str], suffix: str = "호") -> Optional[str]:
-    """동·호 비교용 값 (PRD 7.4): 공백·"제"·"호"(동은 "동")를 지우고 호수의 지하 표시를 "B"로 통일한다.
+    """동·호 비교용 값: 공백·"제"·"호"(동은 "동")를 지우고 호수의 지하 표시를 "B"로 통일한다.
 
     숫자 앞의 0은 무시한다. "제302호"·"0302호" → "302", "지하102호"·"비102호"·"B102호" → "B102",
     "302-1호" → "302-1", "가동" → "가".

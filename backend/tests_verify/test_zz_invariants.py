@@ -1,4 +1,4 @@
-"""Sweep PRD 7.3 / 8.6 / 10 / F5 / F6 invariants over every report built earlier in this session.
+"""Sweep report invariants (overall verdict, shape, banned phrases, ordering) over every report built earlier in this session.
 
 Runs last (file name). If run alone it skips.
 """
@@ -94,13 +94,13 @@ def test_sweep_ordering():
 
 
 def test_sweep_size():
-    """Not a PRD check: documents how many reports the sweep covered (493 on a full run of tests_verify)."""
+    """Not a rule check: documents how many reports the sweep covered (493 on a full run of tests_verify)."""
     print(f"\nreports swept: {len(_reports())}")
     assert len(_reports()) > 0
 
 
 def test_sweep_rrn_masking():
-    """PRD 7.4 공통 (line 464) and §10 (line 665): no 주민등록번호 형태 in screen text; evidence quotes mask it."""
+    """No 주민등록번호 형태 in screen text; evidence quotes mask it."""
     from verify_helpers import RRN_MASK, RRN_RE
 
     problems = []

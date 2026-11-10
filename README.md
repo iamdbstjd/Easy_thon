@@ -1,21 +1,14 @@
-# 자취방 보증금 지킴이
+<p align="center">
+  <img src="assets/banner.png" alt="자취방 보증금 지킴이: 등기부·계약서로 보는 보증금 위험 신호">
+</p>
 
-등기부등본과 임대차 계약서를 올리면, 보증금을 잃을 수 있는 **위험 신호**를 원문 근거와 함께 알려 주는 웹 서비스.
+<p align="center">
+  등기부등본과 임대차 계약서를 올리면, 보증금을 잃을 수 있는 <b>위험 신호</b>를 원문 근거와 함께 알려 주는 웹 서비스.
+</p>
 
-<table>
-  <tr>
-    <td><img src="screenshots/01-start-390.png" width="240" alt="시작 화면"></td>
-    <td><img src="screenshots/preview-review.png" width="240" alt="읽은 내용 확인 화면"></td>
-    <td><img src="screenshots/preview-report.png" width="240" alt="보증금 위험 검토서 화면"></td>
-  </tr>
-  <tr>
-    <td align="center">시작</td>
-    <td align="center">읽은 내용 확인</td>
-    <td align="center">보증금 위험 검토서</td>
-  </tr>
-</table>
-
-전체 화면은 [screenshots/](screenshots/README.md)에 있다.
+<p align="center">
+  <a href="LICENSE">MIT License</a> · <a href="screenshots/README.md">화면 보기</a>
+</p>
 
 ## 왜 만들었나
 
@@ -163,6 +156,7 @@ frontend/
   src/api/             API 클라이언트와 타입
   src/mocks/           ?mock=1 전용 데이터
 screenshots/           화면 캡처
+assets/                README 배너와 생성 스크립트
 ```
 
 ## 한계
@@ -177,11 +171,8 @@ screenshots/           화면 캡처
 
 - 백엔드: Python, FastAPI, Pydantic, pypdf, [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python) (`claude-opus-5-5`)
 - 프론트엔드: React 19, TypeScript, Vite, Pretendard, Noto Serif KR
-
-## 만든 사람들
-
-[EasyThon 2026](https://easy-thon.github.io/) 출품작.
+- 배너 글꼴: [Galmuri](https://github.com/quiple/galmuri) (SIL Open Font License 1.1). 배너는 [`assets/make_banner.py`](assets/make_banner.py)로 다시 만들 수 있다.
 
 ## 라이선스
 
-아직 정하지 않았다.
+[MIT](LICENSE)

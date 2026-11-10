@@ -14,7 +14,7 @@ import { UploadScreen } from './screens/UploadScreen'
 import { emptyUploadDraft, manualFromDraft } from './state/upload'
 import type { UploadDraft } from './state/upload'
 
-// S1 시작 → S2 업로드 → S3 분석 중 → S4 내용 확인·수정 → S5 리포트 (PRD 4.1)
+// S1 시작 → S2 업로드 → S3 분석 중 → S4 내용 확인·수정 → S5 리포트
 type View =
   | { name: 'start' }
   | { name: 'upload' }
@@ -23,7 +23,7 @@ type View =
   | { name: 'review' }
   | { name: 'report' }
 
-/** S3: 90초가 지나면 멈추고 오류 화면을 보여준다 (PRD 4.2 S3) */
+/** S3: 90초가 지나면 멈추고 오류 화면을 보여준다 */
 const TIMEOUT_MS = 90_000
 const TIMEOUT_MESSAGE = '90초 안에 끝나지 않아 멈췄어요. 잠시 후 다시 시도하거나 예시 결과를 확인하세요.'
 /** /api/check가 이보다 빨리 끝나면 S3를 거치지 않고 바로 리포트를 보여준다 (화면 깜빡임 방지) */
@@ -122,7 +122,7 @@ export default function App() {
     }
   }
 
-  /** S4 → (S3) → S5: 고친 값으로 위험 신호를 검사한다. AI는 다시 부르지 않는다 (PRD F4) */
+  /** S4 → (S3) → S5: 고친 값으로 위험 신호를 검사한다. AI는 다시 부르지 않는다 */
   async function runCheck(req: CheckRequest) {
     const task = beginTask()
     setRequest(req)

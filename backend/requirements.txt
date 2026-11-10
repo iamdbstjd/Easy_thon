@@ -1,0 +1,9 @@
+fastapi==0.162.2
+uvicorn[standard]==0.54.0
+python-multipart==0.0.33
+anthropic==2.6.0
+pydantic==2.14.3
+pypdf==7.0.0
+cryptography==50.0.2  # pypdf가 AES 암호(소유자 암호만 걸린 PDF)를 풀 때 필요
+pytest==9.2.0
+httpx==0.28.1

@@ -1,0 +1,105 @@
+{
+  "registry": {
+    "is_registry": true,
+    "registry_type": "건물",
+    "viewed_at": "2026-11-09T14:25:07+09:00",
+    "address_jibun": "경기도 용인시 수지구 죽전동 456-7",
+    "address_road": "경기도 용인시 수지구 현암로 45",
+    "building_name": null,
+    "unit": {
+      "dong": null,
+      "ho": null,
+      "floor": null,
+      "area_m2": null
+    },
+    "building_use_lines": [
+      "철근콘크리트구조 (철근)콘크리트지붕 4층 다가구주택",
+      "1층 132.50㎡",
+      "2층 140.20㎡",
+      "3층 140.20㎡",
+      "4층 98.70㎡"
+    ],
+    "gapgu": [
+      {
+        "rank": "1",
+        "purpose": "소유권보존",
+        "received_at": "2012-04-02",
+        "cause": null,
+        "holders": ["최○○"],
+        "amount": null,
+        "is_cancelled": false,
+        "page": 1,
+        "source_text": "1 소유권보존 2012년4월2일 제23456호 소유자 최○○ 550720-******* 경기도 용인시 수지구 현암로 ○○"
+      },
+      {
+        "rank": "2",
+        "purpose": "소유권이전",
+        "received_at": "2026-09-15",
+        "cause": "매매",
+        "holders": ["박○○"],
+        "amount": null,
+        "is_cancelled": false,
+        "page": 1,
+        "source_text": "2 소유권이전 2026년9월15일 제67890호 2026년8월20일 매매 소유자 박○○ 780412-******* 경기도 성남시 분당구 ○○로 12 거래가액 금950,000,000원"
+      }
+    ],
+    "eulgu": [
+      {
+        "rank": "1",
+        "purpose": "근저당권설정",
+        "received_at": "2026-09-15",
+        "cause": "설정계약",
+        "holders": ["○○은행"],
+        "amount": 120000000,
+        "is_cancelled": false,
+        "page": 2,
+        "source_text": "1 근저당권설정 2026년9월15일 제67891호 2026년9월15일 설정계약 채권최고액 금120,000,000원 채무자 박○○ 경기도 성남시 분당구 ○○로 12 근저당권자 주식회사○○은행 110111-******* 서울특별시 중구 ○○대로 1 (죽전지점)"
+      }
+    ],
+    "unreadable": []
+  },
+  "contract": {
+    "is_contract": true,
+    "landlord_names": ["박○○"],
+    "agent_name": null,
+    "address": "경기도 용인시 수지구 죽전동 456-7 ○○하우스 203호",
+    "unit": {
+      "dong": null,
+      "ho": "203호"
+    },
+    "lease_type": "월세",
+    "deposit": 30000000,
+    "monthly_rent": 350000,
+    "contract_date": "2026-11-14",
+    "balance_date": "2026-12-01",
+    "move_in_date": "2026-12-01",
+    "lease_end": "2027-11-30",
+    "special_terms": [
+      "반려동물은 키우지 않는다."
+    ],
+    "sources": {
+      "landlord": "임대인 성명 박○○ 주민등록번호 780412-******* 주소 경기도 성남시 분당구 ○○로 12",
+      "address": "소재지 경기도 용인시 수지구 죽전동 456-7 ○○하우스 203호",
+      "deposit": "보증금 금 삼천만원정 (₩30,000,000)",
+      "special_terms": "1. 반려동물은 키우지 않는다."
+    }
+  },
+  "manual": {
+    "deposit": null,
+    "monthly_rent": null,
+    "contract_date": null,
+    "landlord_name": null,
+    "prior_deposits": null,
+    "market_price": null
+  },
+  "building": {
+    "main_use": "단독주택(다가구주택)",
+    "unit_use": null,
+    "is_violating": false,
+    "source": "pdf",
+    "source_text": "일반건축물대장 주용도 단독주택(다가구주택) / 위반건축물 표시 없음"
+  },
+  "market": null,
+  "today": "2026-11-14",
+  "mode": "demo"
+}

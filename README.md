@@ -1,0 +1,187 @@
+# 자취방 보증금 지킴이
+
+등기부등본과 임대차 계약서를 올리면, 보증금을 잃을 수 있는 **위험 신호**를 원문 근거와 함께 알려 주는 웹 서비스.
+
+<table>
+  <tr>
+    <td><img src="screenshots/01-start-390.png" width="240" alt="시작 화면"></td>
+    <td><img src="screenshots/preview-review.png" width="240" alt="읽은 내용 확인 화면"></td>
+    <td><img src="screenshots/preview-report.png" width="240" alt="보증금 위험 검토서 화면"></td>
+  </tr>
+  <tr>
+    <td align="center">시작</td>
+    <td align="center">읽은 내용 확인</td>
+    <td align="center">보증금 위험 검토서</td>
+  </tr>
+</table>
+
+전체 화면은 [screenshots/](screenshots/README.md)에 있다.
+
+## 왜 만들었나
+
+- 전세사기 피해자로 인정된 사람의 약 75%가 20·30대다 (2025년 5월 말 기준, [국토교통부 국회 보고](https://www.kukinews.com/article/view/kuk202506260209)).
+- 집의 위험 정보(등기부, 건축물대장, 실거래가)는 이미 공개되어 있다. 문제는 처음 집을 구하는 사람이 그 서류를 읽고 해석하지 못한다는 것이다.
+- 대학가 원룸은 대부분 보증금 있는 월세다. 근저당이나 선순위 보증금 때문에 보증금을 못 돌려받는 구조는 전세와 같다.
+
+## 주요 기능
+
+- **서류 읽기**: 등기부등본 PDF와 계약서(사진·PDF)를 Claude가 정해진 JSON 형식으로 옮긴다.
+- **위험 신호 13가지 검사**: 규칙 엔진이 소유자·신탁·압류·근저당·시세 비율 등을 확인하고, 신호마다 원문 근거와 할 일을 보여 준다.
+- **종합 판정**: 계약 보류 권장 / 추가 확인 필요 / 확인 미완료 / 큰 위험 신호 없음.
+- **다음 행동**: 집주인에게 보낼 서류 요청 메시지, 추천 특약 문구, 계약 일정(캘린더 파일).
+- **틀린 값 고치기**: AI가 읽은 값을 사용자가 확인하고 고친 뒤 다시 검사할 수 있다.
+- **예시 데이터**: API 키나 인터넷 없이도 예시 A·B·C로 전체 흐름을 볼 수 있다.
+
+## 동작 방식
+
+```
+등기부 PDF ─┐
+            ├─> FastAPI ─> Claude: 서류를 JSON으로 옮기기 (판단하지 않음)
+계약서     ─┘                  │
+                               v
+                  사용자가 읽은 값 확인·수정
+                               │
+                               v
+                  규칙 엔진 R1–R13 ─> 검토서 (판정 + 근거 + 할 일)
+```
+
+설계 원칙:
+
+1. **AI는 읽기만 한다.** 위험 여부는 판단하지 않는다.
+2. **판단은 규칙 코드가 한다.** 같은 입력이면 항상 같은 결과가 나온다.
+3. **모든 결과에 근거를 붙인다.** 사용자가 원문과 대조할 수 있다.
+4. **모르면 모른다고 한다.** 읽지 못한 항목은 "해당 없음"이 아니라 "확인 못 함"으로 표시한다.
+5. **단정하지 않는다.** "사기", "안전" 같은 판정을 내리지 않는다.
+
+## 위험 신호
+
+| ID | 신호 | 판정 |
+|---|---|---|
+| R1 | 임대인·소유자 불일치 | 계약서 임대인이 등기부 현재 소유자가 아니면 위험, 공동소유면 주의 |
+| R2 | 신탁등기 | 소유권이 신탁회사에 있으면 위험 |
+| R3 | 압류·경매 등 제한 | 압류·가압류·가처분·가등기·경매 기록이 있으면 위험 |
+| R4 | 임차권등기 | 임차권등기명령 기록이 있으면 위험, 그 밖의 등기된 임차권은 주의 |
+| R5 | 시세 대비 보증금 비율 | (선순위 채권 + 보증금) ÷ 시세가 80% 이상이면 위험, 70% 이상이면 주의 |
+| R6 | 먼저 잡힌 담보·전세권 | 근저당·전세권이 있으면 주의 |
+| R7 | 다가구·단독 | 다른 세입자 보증금이 등기에 안 나오는 구조면 주의 |
+| R8 | 최근 소유권 변동 | 기준일로부터 90일 안에 소유자가 바뀌었으면 주의 |
+| R9 | 위반건축물 | 건축물대장에 위반건축물 표시가 있으면 위험 |
+| R10 | 주거용이 아닌 용도 | 근린생활시설 등 주거용이 아닌 용도면 주의 |
+| R11 | 주소·호수 불일치 | 호수가 다르면 위험, 주소 확인이 필요하면 주의 |
+| R12 | 보호 특약 없음 | 담보 설정 금지·근저당 말소 특약이 없으면 주의 |
+| R13 | 오래된 등기부 | 열람한 지 3일 이상이면 주의 |
+
+규칙은 [`backend/app/rules/engine.py`](backend/app/rules/engine.py)에 있다.
+
+## 시작하기
+
+Python 3.13, Node.js 24에서 테스트했다.
+
+### 백엔드
+
+```bash
+cd backend
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt     # Windows: .venv\Scripts\pip install -r requirements.txt
+cp .env.example .env                          # 실제 서류를 분석하려면 ANTHROPIC_API_KEY 입력
+.venv/bin/uvicorn app.main:app --reload --port 8000
+```
+
+API 문서(Swagger)는 http://localhost:8000/docs 에서 볼 수 있다.
+
+### 프론트엔드
+
+```bash
+cd frontend
+npm install
+npm run dev        # http://localhost:5173
+```
+
+### 실행 모드
+
+| 모드 | 방법 | 필요한 것 |
+|---|---|---|
+| 실제 분석 | 서류 올리기 | 백엔드 + Claude API 키 |
+| 예시 | 시작 화면의 예시 결과 링크 A·B·C | 백엔드 (API 키·인터넷 없어도 됨) |
+| 모의 화면 | http://localhost:5173/?mock=1 | 프론트엔드만 (화면 작업용) |
+
+### 환경변수 (`backend/.env`)
+
+| 이름 | 설명 |
+|---|---|
+| `ANTHROPIC_API_KEY` | Claude API 키. 없으면 `/api/extract`만 503을 내고 나머지는 동작한다 |
+| `EXTRACT_DEADLINE_SECONDS` | 서류 읽기 전체 제한 시간. 기본 85초 (화면이 90초에 포기하므로 그보다 짧게) |
+
+## API
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/health` | AI 키 설정 여부 |
+| POST | `/api/extract` | 등기부 PDF(필수)·계약서(선택)를 받아 JSON으로 옮긴다 |
+| POST | `/api/check` | 읽은 값을 받아 검토서를 만든다. AI를 부르지 않는다 |
+| GET | `/api/demo/{A,B,C}` | 예시 입력값 |
+| POST | `/api/checklist.ics` | 계약 일정을 캘린더 파일로 만든다 |
+
+데이터 형식은 [`backend/app/schemas.py`](backend/app/schemas.py)가 기준이다.
+
+## 개인정보
+
+- 올린 파일은 디스크에 저장하지 않는다. 메모리에서만 처리하고, 크기 제한을 넘으면 읽는 도중에 끊는다.
+- 서버 로그에는 이름·주소·서류 원문을 남기지 않는다.
+- 주민등록번호 형태는 서버 응답과 화면 양쪽에서 `******-*******`로 가린다.
+- 서류 내용은 분석을 위해 Claude API로 전송된다.
+
+## 테스트
+
+```bash
+cd backend
+.venv/bin/python -m pytest -q                 # 개발 테스트
+.venv/bin/python -m pytest tests_verify -q    # 독립 검증 테스트 (구현을 보지 않고 명세만 보고 작성)
+
+cd ../frontend
+npm run build && npm run lint
+```
+
+## 프로젝트 구조
+
+```
+backend/
+  app/
+    main.py            API
+    extract.py         Claude 호출 (마감 시간, 재시도, 거절 처리)
+    prompts.py         추출 프롬프트와 JSON 스키마
+    rules/             위험 신호 규칙 엔진 (R1–R13), 검토서 문구
+    schemas.py         데이터 형식
+    uploads.py         파일 검사 (PDF 암호 해제 포함)
+    privacy.py         주민등록번호 가리기
+    ics.py             캘린더 파일
+  demo/                예시 A·B·C 입력값
+  tests/               개발 테스트
+  tests_verify/        독립 검증 테스트
+frontend/
+  src/screens/         시작 · 서류 올리기 · 서류 읽는 중 · 읽은 내용 확인 · 검토서
+  src/api/             API 클라이언트와 타입
+  src/mocks/           ?mock=1 전용 데이터
+screenshots/           화면 캡처
+```
+
+## 한계
+
+- **법률 자문이 아니다.** 결과는 참고 정보이며 보증금의 안전을 보장하지 않는다.
+- 등기부만으로는 선순위 보증금, 집주인의 세금 체납, 보증사고 이력을 알 수 없다. 검토서에 따로 확인하는 방법을 안내한다.
+- 실제 등기부로 AI 추출 정확도와 소요 시간을 아직 충분히 검증하지 않았다.
+- 공공데이터(실거래가·건축물대장) API는 아직 연결하지 않았다. 연결 전에는 실제 분석에서 R5·R9가 "확인 못 함"으로 나온다. 예시 데이터에는 값이 들어 있다.
+- 사진으로 찍은 등기부는 아직 지원하지 않는다 (인터넷등기소 PDF만).
+
+## 기술 스택
+
+- 백엔드: Python, FastAPI, Pydantic, pypdf, [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python) (`claude-opus-5-5`)
+- 프론트엔드: React 19, TypeScript, Vite, Pretendard, Noto Serif KR
+
+## 만든 사람들
+
+[EasyThon 2026](https://easy-thon.github.io/) 출품작.
+
+## 라이선스
+
+아직 정하지 않았다.

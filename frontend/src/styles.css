@@ -1,0 +1,848 @@
+/* PRD 4.4 (v0.4) 서류 스타일: 등기부등본·공문서처럼 선으로 짠 "검토서".
+   - 선: 문서 머리와 큰 절의 경계는 2px 검정, 그 밖은 1px 회색(#D9DCE1). 그림자 없음
+   - 상자는 원문 인용에만 (1px 테두리, 흰 바탕). 연한 색 바탕은 쓰지 않는다
+   - 등급 색은 글자에만. 링크와 주 버튼은 잉크색 하나
+   - 화면마다 주 버튼 하나. 나머지 동작은 밑줄 글자 링크 (누르는 영역 44px 이상)
+   - 모서리 0–2px, 움직임 없음 */
+
+:root {
+  --ink: #111111;
+  --text: #111111;
+  --text-2: #4b5563;
+  --rule: #d9dce1;
+  --rule-strong: #111111;
+  --field-border: #8b9099;
+  --bg: #ffffff;
+
+  /* 등급 색: 글자에만 쓴다 (흰 바탕 대비 4.5:1 이상) */
+  --red: #b42318;
+  --yellow: #8a5a00;
+  --green: #2e6b3f;
+  --gray: #4b5563;
+
+  --radius: 2px;
+  /* 라벨 | 값 표의 라벨 칸 폭. 한 화면 안의 값 칸 왼쪽이 맞도록 모든 표가 같이 쓴다 */
+  --label-col: 9em;
+  /* 좌우 여백 16px. 아이폰 가로 화면에서는 안전 영역만큼 넓힌다 */
+  --gutter-l: max(16px, env(safe-area-inset-left));
+  --gutter-r: max(16px, env(safe-area-inset-right));
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
+    'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  --font-serif: 'Noto Serif KR', 'Nanum Myeongjo', AppleMyungjo, Batang, serif;
+
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* S4 아래 고정 줄에 입력 칸이 가려지지 않게 한다 */
+  scroll-padding-bottom: 96px;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.65;
+  /* 금액·날짜는 고정폭 숫자 */
+  font-variant-numeric: tabular-nums;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+dl,
+dd,
+figure,
+blockquote {
+  margin: 0;
+}
+h1 {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+h2 {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+}
+h3 {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+}
+a {
+  color: var(--ink);
+  text-underline-offset: 3px;
+}
+h1:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.muted {
+  color: var(--text-2);
+}
+.mt-1 {
+  margin-top: 6px;
+}
+.mt-2 {
+  margin-top: 12px;
+}
+.nowrap {
+  white-space: nowrap;
+}
+.mt-3 {
+  margin-top: 16px;
+}
+.mt-4 {
+  margin-top: 32px;
+}
+
+/* ---------------------------------------------------------------------------
+   머리글과 본문 틀
+   --------------------------------------------------------------------------- */
+
+.site-header-inner {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 14px var(--gutter-r) 0 var(--gutter-l);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.site-name {
+  font-weight: 700;
+}
+/* 데모·모의 데이터 표시: 테두리 없는 보조 글자 */
+.mode-marker {
+  color: var(--text-2);
+}
+
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 14px var(--gutter-r) 64px var(--gutter-l);
+}
+.page:has(.sticky-actions) {
+  padding-bottom: 0;
+}
+
+/* 문서 머리: 위쪽 2px 선 */
+.doc-head {
+  border-top: 2px solid var(--rule-strong);
+  padding-top: 16px;
+}
+.doc-head > * + * {
+  margin-top: 8px;
+}
+
+/* 큰 절: 위쪽 2px 선 */
+.doc-section {
+  margin-top: 32px;
+  border-top: 2px solid var(--rule-strong);
+  padding-top: 10px;
+}
+.doc-section > * + * {
+  margin-top: 10px;
+}
+/* 작은 묶음: 제목 아래 1px 선으로 시작하는 표 */
+.sub-section {
+  margin-top: 24px;
+}
+.sub-section > * + * {
+  margin-top: 8px;
+}
+/* 절 제목 줄: 왼쪽 제목, 오른쪽 글자 링크 (복사, 캘린더에 저장) */
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 16px;
+  min-height: 44px;
+}
+
+.footnote {
+  margin-top: 32px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  color: var(--text-2);
+}
+
+/* ---------------------------------------------------------------------------
+   표: 라벨 | 값 (1px 줄)
+   --------------------------------------------------------------------------- */
+
+.rows {
+  border-top: 1px solid var(--rule);
+}
+.row {
+  display: grid;
+  grid-template-columns: var(--label-col) minmax(0, 1fr);
+  column-gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.row > dt,
+.row-label {
+  color: var(--text-2);
+}
+.row > dd {
+  margin: 0;
+}
+.row-lines {
+  list-style: none;
+  padding: 0;
+}
+.row-lines > li + li {
+  margin-top: 2px;
+}
+/* 제목 옆 보충 글 (예: "갑구 소유권") */
+.heading-note {
+  margin-left: 4px;
+  color: var(--text-2);
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* 입력 줄 (S2, S4): 라벨 | 입력. 휴대폰에서는 입력이 라벨 아래로 내려간다 */
+.form-row {
+  display: grid;
+  grid-template-columns: var(--label-col) minmax(0, 1fr);
+  column-gap: 16px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.form-label {
+  padding-top: 10px;
+  color: var(--text-2);
+}
+/* 라벨 아래 괄호 풀이 (예: "(먼저 들어온 세입자 보증금)") */
+.label-gloss {
+  display: block;
+}
+.form-value {
+  min-width: 0;
+}
+.form-text {
+  padding-top: 10px;
+}
+.form-hint {
+  margin-top: 4px;
+  color: var(--text-2);
+}
+.form-error {
+  margin-top: 4px;
+  color: var(--red);
+  font-weight: 600;
+}
+@media (max-width: 559px) {
+  .form-row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 4px;
+  }
+  .form-label,
+  .form-text {
+    padding-top: 0;
+  }
+  /* 읽기 전용 줄은 값이 짧아서 휴대폰에서도 라벨 | 값 두 칸으로 둔다 */
+  .form-row.read-row {
+    grid-template-columns: var(--label-col) minmax(0, 1fr);
+    column-gap: 12px;
+  }
+}
+@media (max-width: 559px) {
+  :root {
+    --label-col: 6.5em;
+  }
+  .row {
+    column-gap: 12px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   입력 칸
+   --------------------------------------------------------------------------- */
+
+.input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+}
+.input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 0;
+  border-color: var(--ink);
+}
+.input-narrow {
+  max-width: 200px;
+}
+/* 주소·이름: 내용에 맞춰 늘어나는 칸 */
+textarea.input {
+  resize: none;
+  overflow: hidden;
+}
+/* 금액: "원"을 칸 안에 */
+.money {
+  position: relative;
+  max-width: 280px;
+}
+.money .input {
+  padding-right: 40px;
+  text-align: right;
+}
+.money-unit {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  color: var(--text-2);
+  pointer-events: none;
+}
+
+/* 파일 고르기: 숨긴 파일 입력 + 글자 링크 라벨 */
+.file-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 16px;
+  min-height: 44px;
+}
+.file-name {
+  font-weight: 600;
+}
+.file-input:focus-visible ~ .file-line .file-pick {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   버튼과 글자 링크
+   --------------------------------------------------------------------------- */
+
+/* 주 버튼: 화면마다 하나 */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 20px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+  cursor: pointer;
+}
+.btn-primary:disabled {
+  border-color: var(--rule);
+  background: var(--rule);
+  color: var(--text-2);
+  cursor: not-allowed;
+}
+
+/* 그 밖의 동작: 밑줄 글자 링크. 누르는 영역 44px */
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  /* 누르는 영역을 좌우로 8px씩 넓히고, 음수 여백으로 글자 위치는 그대로 둔다 (44×44 이상) */
+  padding: 0 8px;
+  margin: 0 -8px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link:disabled {
+  color: var(--text-2);
+  text-decoration: none;
+  cursor: default;
+}
+/* 문장 속 링크: 줄 높이는 그대로 두고 누르는 영역만 넓힌다 */
+.tap-target {
+  display: inline-block;
+  padding: 10px 4px;
+  margin: -10px -4px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  margin-top: 24px;
+}
+@media (max-width: 480px) {
+  .actions > .btn-primary {
+    flex: 1 1 auto;
+  }
+}
+
+.link-list {
+  list-style: none;
+  padding: 0;
+}
+
+/* S4: [위험 신호 검사] 줄을 화면 아래에 고정 (흰 바탕, 위쪽 1px 선, 그림자 없음) */
+.sticky-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  margin: 32px calc(-1 * var(--gutter-r)) 0 calc(-1 * var(--gutter-l));
+  padding: 12px var(--gutter-r) calc(12px + env(safe-area-inset-bottom)) var(--gutter-l);
+  background: var(--bg);
+  border-top: 1px solid var(--rule);
+}
+@media (max-width: 480px) {
+  .sticky-actions > .btn-primary {
+    flex: 1 1 auto;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   등급: 색 글자만 (배경·테두리 없음)
+   --------------------------------------------------------------------------- */
+
+.grade {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.grade-red {
+  color: var(--red);
+}
+.grade-yellow {
+  color: var(--yellow);
+}
+.grade-green {
+  color: var(--green);
+}
+.grade-unknown {
+  color: var(--gray);
+}
+
+/* ---------------------------------------------------------------------------
+   접기·펼치기
+   --------------------------------------------------------------------------- */
+
+/* 제목 줄 전체가 버튼. 오른쪽 "펼치기 / 접기"는 밑줄 글자 */
+.fold-heading {
+  font: inherit;
+  letter-spacing: inherit;
+}
+h2.fold-heading {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.fold-button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.fold-title {
+  min-width: 0;
+}
+.fold-toggle {
+  flex: none;
+  margin-left: auto;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.fold-body {
+  padding-bottom: 12px;
+}
+/* S2 "계약서가 아직 없으면 직접 입력" 줄: 표의 한 줄처럼 1px 선 사이에 둔다 */
+.toggle-group {
+  border-top: 1px solid var(--rule);
+}
+.toggle-row {
+  border-bottom: 1px solid var(--rule);
+}
+
+details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
+details[open] > summary .when-closed,
+details:not([open]) > summary .when-open {
+  display: none;
+}
+/* "근거 (등기부 2쪽, 계약서) ……… 펼치기" */
+.reveal > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+.reveal-toggle {
+  flex: none;
+  margin-left: auto;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.reveal-body {
+  padding-bottom: 4px;
+}
+
+/* 원문 인용: 이 서비스에서 상자를 쓰는 유일한 곳 */
+.excerpt {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.excerpt + .excerpt {
+  margin-top: 8px;
+}
+.excerpt-caption {
+  display: block;
+  padding: 8px 12px 0;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.excerpt-text {
+  padding: 2px 12px 10px;
+  white-space: pre-wrap;
+}
+
+/* ---------------------------------------------------------------------------
+   목록
+   --------------------------------------------------------------------------- */
+
+.num-list {
+  padding-left: 1.4em;
+  list-style: decimal;
+}
+.num-list > li + li {
+  margin-top: 4px;
+}
+.dot-list {
+  padding-left: 1.2em;
+  list-style: disc;
+}
+.dot-list > li + li {
+  margin-top: 2px;
+}
+/* 줄로 나눈 목록 */
+.ruled-list {
+  list-style: none;
+  padding: 0;
+}
+.ruled-list > li {
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+}
+.ruled-list .item-detail {
+  color: var(--text-2);
+}
+
+/* ---------------------------------------------------------------------------
+   S3 단계 표
+   --------------------------------------------------------------------------- */
+
+.step-active {
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------------------------
+   S4 갑구·을구 표
+   --------------------------------------------------------------------------- */
+
+.entry-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-top: 1px solid var(--rule);
+}
+.entry-table th {
+  padding: 8px 10px 6px 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+.entry-table td {
+  padding: 8px 10px 8px 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+.entry-table td.c-nowrap {
+  white-space: nowrap;
+}
+.entry-table td.c-source {
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-right: 0;
+  text-align: right;
+}
+.entry-table .entry-source-row > td {
+  padding-top: 0;
+  padding-right: 0;
+  padding-bottom: 12px;
+}
+.entry-table tr.entry-row:has(+ tr.entry-source-row:not([hidden])) > td {
+  border-bottom: 0;
+}
+.entry-purpose {
+  font-weight: 700;
+}
+.entry-cancelled .entry-purpose {
+  text-decoration: line-through;
+  color: var(--text-2);
+}
+/* 휴대폰: 줄마다 덩어리로. 순위와 목적을 첫 줄에, 나머지는 라벨을 붙여 아래로 */
+@media (max-width: 559px) {
+  .entry-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+  .entry-table,
+  .entry-table tbody,
+  .entry-table tr,
+  .entry-table td {
+    display: block;
+  }
+  .entry-table tr.entry-row {
+    display: grid;
+    grid-template-columns: 2.2em minmax(0, 1fr) auto;
+    column-gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .entry-table tr.entry-row > td {
+    padding: 0;
+    border: 0;
+    grid-column: 2;
+  }
+  .entry-table tr.entry-row > td.c-rank {
+    grid-column: 1;
+    grid-row: 1 / span 4;
+  }
+  .entry-table tr.entry-row > td.c-source {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    align-self: start;
+  }
+  /* 원문 링크 글자를 첫 줄(목적)과 같은 높이에 */
+  .entry-table tr.entry-row > td.c-source .link {
+    align-items: flex-start;
+  }
+  /* 접힌 원문 줄은 숨긴다 (display:block이 [hidden]을 덮지 않게) */
+  .entry-table tr[hidden] {
+    display: none;
+  }
+  .entry-table tr.entry-row:has(+ tr.entry-source-row:not([hidden])) {
+    border-bottom: 0;
+  }
+  .entry-table tr.entry-row > td:empty {
+    display: none;
+  }
+  .entry-table td[data-label]::before {
+    content: attr(data-label) ' ';
+    color: var(--text-2);
+  }
+  .entry-table tr.entry-row > td.c-purpose::before,
+  .entry-table tr.entry-row > td.c-rank::before {
+    content: none;
+  }
+  .entry-table .entry-source-row > td {
+    padding: 0 0 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   S5 검토서
+   --------------------------------------------------------------------------- */
+
+.report-title {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+/* 문서 머리 표: 라벨 칸 폭을 고정해 값의 왼쪽을 맞춘다 ("확인한 서류"가 들어가는 폭) */
+.doc-meta .row {
+  grid-template-columns: var(--label-col) minmax(0, 1fr);
+}
+.doc-meta .row:last-child {
+  border-bottom: 0;
+}
+.verdict {
+  font-family: var(--font-serif);
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+.verdict-red {
+  color: var(--red);
+}
+.verdict-yellow {
+  color: var(--yellow);
+}
+.verdict-green {
+  color: var(--green);
+}
+.verdict-detail > * + * {
+  margin-top: 4px;
+}
+.counts {
+  font-weight: 600;
+}
+
+/* 위험 신호 항목: 번호 · 판정 · 제목, 아래에 설명·할 일·근거 */
+.finding {
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+}
+.finding-head {
+  display: grid;
+  grid-template-columns: 1.4em 2.6em minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: baseline;
+}
+.finding-num {
+  font-weight: 700;
+}
+.finding-title {
+  text-wrap: balance;
+}
+.finding-body {
+  margin-top: 4px;
+  padding-left: calc(1.4em + 10px);
+}
+.finding-body > * + * {
+  margin-top: 6px;
+}
+.finding-action-label {
+  font-weight: 700;
+}
+@media (min-width: 560px) {
+  .finding-body {
+    padding-left: calc(1.4em + 2.6em + 20px);
+  }
+}
+/* 1절 끝의 접힌 목록 (번호 칸만큼 들여 쓴다) */
+.finding-fold {
+  border-top: 1px solid var(--rule);
+  padding-left: calc(1.4em + 10px);
+}
+.finding-fold .fold-heading {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* "가 · 나 · 다" 목록: 구분점을 각 항목 앞(앞 항목의 오른쪽 여백 자리)에 그린다.
+   줄 첫 항목의 점은 상자 밖이라 잘리므로, 줄이 바뀌어도 줄 끝이나 줄 앞에 점이 남지 않는다 */
+.sep-list {
+  display: flex;
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+.sep-list > * {
+  white-space: nowrap;
+  margin-right: 1.1em;
+}
+.sep-list > *::before {
+  content: '·' / '';
+  display: inline-block;
+  width: 1.1em;
+  margin-left: -1.1em;
+  text-align: center;
+}
+.message-text {
+  white-space: pre-wrap;
+}
+/* 5절: 항목 제목 아래 라벨 | 값 줄 */
+.info-item h3 {
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+.info-item + .info-item {
+  margin-top: 20px;
+}
+
+.help-list > li + li {
+  margin-top: 4px;
+}

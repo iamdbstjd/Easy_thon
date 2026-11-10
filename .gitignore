@@ -1,0 +1,20 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# 비밀 값 (API 키)
+.env
+!.env.example
+
+# OS
+.DS_Store
+
+# 팀 내부 기획 문서 (저장소에 올리지 않음)
+PRD.md
+PLAN.md

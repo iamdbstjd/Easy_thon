@@ -445,7 +445,7 @@ class TestR5:
     def test_red_texts(self):
         r = res(run(r5_req(80_000_000)), "R5")
         assert r.title == R5_TITLE and r.action == R5_ACTION
-        assert r.summary.startswith("선순위 0원 + 내 보증금 8,000만 원 = 시세(1억 원"), r.summary
+        assert r.summary.startswith("내 보증금 8,000만 원이 시세(1억 원"), r.summary
         assert r.summary.endswith(f")의 80%예요. {R5_SUMMARY_TAIL}"), r.summary
 
     def test_yellow_texts(self):
@@ -454,9 +454,9 @@ class TestR5:
         assert r.summary.endswith(f")의 70%예요. {R5_SUMMARY_TAIL}"), r.summary
 
     def test_scenario_c_text(self):
-        """4.3 wireframe: 선순위 0원 + 내 보증금 1억 8,000만 원 = 시세(2억 원)의 90%예요."""
+        """4.3 wireframe: 내 보증금 1억 8,000만 원이 시세(2억 원)의 90%예요."""
         r = res(run(demo("C")), "R5")
-        assert r.summary.startswith("선순위 0원 + 내 보증금 1억 8,000만 원 = 시세(2억 원"), r.summary
+        assert r.summary.startswith("내 보증금 1억 8,000만 원이 시세(2억 원"), r.summary
         assert ")의 90%예요." in r.summary
 
     def test_green_still_shows_ratio(self):

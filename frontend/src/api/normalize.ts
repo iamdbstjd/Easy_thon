@@ -4,7 +4,9 @@
 //   여기서 걸러 두면 extra="forbid" 때문에 요청이 거절되는 일이 없다.
 
 import type {
+  Amendment,
   BuildingRegister,
+  ComparisonRow,
   ChecklistItem,
   CheckRequest,
   ContractExtract,
@@ -192,6 +194,38 @@ function normRule(raw: unknown): RuleResult {
   }
 }
 
+function normComparisonRow(raw: unknown): ComparisonRow {
+  const v = obj(raw)
+  return {
+    item: str(v.item) ?? '',
+    rule_id: str(v.rule_id) ?? '',
+    contract: str(v.contract),
+    registry: str(v.registry),
+    level: oneOf<Level>(v.level, LEVELS) ?? 'unknown',
+    note: str(v.note) ?? '',
+  }
+}
+
+function normAmendment(raw: unknown): Amendment | null {
+  if (raw === null || raw === undefined) return null
+  const v = obj(raw)
+  return {
+    title: str(v.title) ?? '계약서 수정 요청서',
+    fixes: list(v.fixes).map((f) => {
+      const x = obj(f)
+      return {
+        item: str(x.item) ?? '',
+        current: str(x.current),
+        proposed: str(x.proposed) ?? '',
+        reason: str(x.reason) ?? '',
+      }
+    }),
+    terms: strList(v.terms),
+    documents: strList(v.documents),
+    text: str(v.text) ?? '',
+  }
+}
+
 function normChecklistItem(raw: unknown): ChecklistItem {
   const v = obj(raw)
   return { when: str(v.when) ?? '', date: str(v.date), title: str(v.title) ?? '' }
@@ -218,6 +252,8 @@ export function normReport(raw: unknown): Report {
       green: num(counts.green) ?? 0,
     },
     results: list(v.results).map(normRule),
+    comparison: list(v.comparison).map(normComparisonRow),
+    amendment: normAmendment(v.amendment),
     request_message: str(v.request_message),
     special_terms: strList(v.special_terms),
     checklist: list(v.checklist).map(normChecklistItem),

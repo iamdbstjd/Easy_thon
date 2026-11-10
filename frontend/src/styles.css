@@ -846,3 +846,220 @@ details:not([open]) > summary .when-open {
 .help-list > li + li {
   margin-top: 4px;
 }
+
+/* ---------------------------------------------------------------------------
+   S5 1절: 계약서·등기부 대조표 (F14). 선으로 짠 표, 상자 없음
+   --------------------------------------------------------------------------- */
+
+.cmp-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-top: 1px solid var(--rule);
+}
+.cmp-table thead th {
+  padding: 8px 12px 6px 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+.cmp-table th.c-item,
+.cmp-table td {
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+.cmp-table th.c-item {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cmp-table td.c-result {
+  min-width: 7em;
+  padding-right: 0;
+}
+/* 불일치·위험 행은 두 값을 굵게 해서 나란히 비교되게 한다 (색은 결과 글자에만) */
+.cmp-table .cmp-red .c-val {
+  font-weight: 600;
+}
+/* 휴대폰: 행마다 덩어리. 첫 줄은 항목과 결과, 아래로 계약서·등기부 값을 라벨과 함께 */
+@media (max-width: 559px) {
+  .cmp-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+  .cmp-table,
+  .cmp-table tbody {
+    display: block;
+  }
+  .cmp-table tr.cmp-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 12px;
+    row-gap: 2px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .cmp-table tr.cmp-row > th,
+  .cmp-table tr.cmp-row > td {
+    padding: 0;
+    border: 0;
+  }
+  .cmp-table th.c-item {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .cmp-table td.c-result {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    text-align: right;
+  }
+  .cmp-table td.c-val {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: var(--label-col) minmax(0, 1fr);
+    column-gap: 12px;
+  }
+  .cmp-table td.c-val::before {
+    content: attr(data-label);
+    color: var(--text-2);
+    font-weight: 400;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   S5 3절: 계약서 수정 요청서 (F15)
+   --------------------------------------------------------------------------- */
+
+.head-links {
+  display: flex;
+  align-items: center;
+  gap: 0 20px;
+}
+.amend-part {
+  padding-top: 6px;
+}
+.amend-part h3 {
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+.fix-list {
+  list-style: none;
+  padding: 0;
+}
+/* "1) 2) 3)" 번호 목록 */
+.paren-list {
+  list-style: none;
+  padding-left: 1.9em;
+  counter-reset: item;
+}
+.paren-list > li {
+  position: relative;
+  counter-increment: item;
+}
+.paren-list > li + li {
+  margin-top: 4px;
+}
+.paren-list > li::before {
+  content: counter(item) ')';
+  position: absolute;
+  left: -1.9em;
+}
+.print-inline {
+  display: none;
+}
+/* 인쇄본 받는 분·서명란 */
+.sign-rows {
+  margin-top: 10mm;
+}
+.sign-rows,
+.sign-rows .row {
+  border: 0;
+}
+.sign-line {
+  display: inline-block;
+  width: 55mm;
+  height: 1.3em;
+  border-bottom: 1px solid #000000;
+  vertical-align: bottom;
+}
+.fix-list > li + li {
+  margin-top: 8px;
+}
+.print-only {
+  display: none;
+}
+
+/* 인쇄: 요청서가 있는 화면(S5)에서는 요청서만 A4로. 머리글·버튼·다른 절은 빼고 검정 글자로 */
+@media print {
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+  }
+  body:has(.amendment) {
+    background: #ffffff;
+    color: #000000;
+    font-size: 10.5pt;
+    line-height: 1.6;
+  }
+  body:has(.amendment) .site-header,
+  .page:has(.amendment) > :not(.amendment) {
+    display: none !important;
+  }
+  .page:has(.amendment) {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+  .amendment {
+    margin: 0;
+    padding-top: 4mm;
+    border-top: 2px solid #000000;
+  }
+  .amendment,
+  .amendment * {
+    color: #000000 !important;
+  }
+  .amendment h2 {
+    font-family: var(--font-serif);
+    font-size: 18pt;
+    letter-spacing: 0;
+  }
+  .amendment h3 {
+    font-size: 11pt;
+  }
+  .amendment .section-head {
+    min-height: 0;
+  }
+  .amendment .rows .row {
+    grid-template-columns: 4em minmax(0, 1fr);
+    padding: 4px 0;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block;
+  }
+  .print-inline {
+    display: inline;
+  }
+  .amendment .sign-rows .row {
+    padding: 8px 0;
+  }
+  .amend-part,
+  .fix-list > li,
+  .num-list > li {
+    break-inside: avoid;
+  }
+  .print-foot {
+    margin-top: 8mm;
+    font-size: 9pt;
+  }
+}

@@ -13,6 +13,7 @@ export function FilePicker({
   busy,
   error,
   describedBy,
+  hint,
   onPick,
   onClear,
 }: {
@@ -24,6 +25,8 @@ export function FilePicker({
   error?: string | null
   /** 형식 안내 문장의 id */
   describedBy?: string
+  /** 파일을 고르기 전에만 보이는 안내 한 줄 (계약서: "계약서를 함께 올리면 …") */
+  hint?: string
   onPick: (file: File) => void
   onClear: () => void
 }) {
@@ -31,6 +34,7 @@ export function FilePicker({
   const labelId = `${id}-label`
   const pickId = `${id}-pick`
   const errorId = `${id}-error`
+  const hintId = `${id}-hint`
 
   return (
     <div className="form-row">
@@ -45,7 +49,10 @@ export function FilePicker({
           type="file"
           accept={accept}
           aria-labelledby={`${labelId} ${pickId}`}
-          aria-describedby={[describedBy, error ? errorId : null].filter(Boolean).join(' ') || undefined}
+          aria-describedby={
+            [hint && !file ? hintId : null, describedBy, error ? errorId : null].filter(Boolean).join(' ') ||
+            undefined
+          }
           onChange={(e) => {
             const picked = e.target.files?.[0]
             // 같은 파일을 다시 골라도 onChange가 오도록 비운다.
@@ -68,6 +75,11 @@ export function FilePicker({
             </button>
           )}
         </div>
+        {hint && !file && (
+          <p id={hintId} className="form-hint">
+            {hint}
+          </p>
+        )}
         {error && (
           <p id={errorId} className="form-error" role="alert">
             {error}

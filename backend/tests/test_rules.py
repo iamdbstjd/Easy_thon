@@ -20,6 +20,7 @@ from app.rules.common import (
     is_floor_line,
     jibun_core,
     josa_euro,
+    josa_iga,
     josa_ieyo,
     line_has_floor,
     mask_id_numbers,
@@ -604,6 +605,30 @@ def test_messy_inputs_never_hit_the_failure_fallback():
             assert r.unknown_reason != engine.RULE_FAILED, r.id
             assert (r.unknown_reason is not None) == (r.level == "unknown")
             assert all(e.text for e in r.evidence)
+        check_crosscheck(report)
+
+
+COMPARISON_ORDER = [("임대인", "R1"), ("소재지·호수", "R11"), ("보증금", "R5"), ("계약일", "R8"), ("특약", "R12")]
+FALLBACK_NOTES = {"확인 필요", "해당 없음"}  # 행을 만들다 실패했을 때만 쓰는 결과
+
+
+def check_crosscheck(report):
+    """대조표·요청서 공통 조건: 행 순서, 등급 = 규칙 등급, 값이 비어 있지 않음, R5 비율 일치, 요청서 있음."""
+    levels = {r.id: r.level for r in report.results}
+    rows = report.comparison
+    assert [(row.item, row.rule_id) for row in rows] == COMPARISON_ORDER
+    for row in rows:
+        assert row.level == levels[row.rule_id], row
+        assert row.registry and row.note, row
+        assert row.contract is None or row.contract.strip(), row  # 값이 없으면 null (화면에는 "—")
+        assert row.note not in FALLBACK_NOTES, row  # 값을 만들다 실패한 행이 없다
+    r5 = {r.id: r for r in report.results}["R5"]
+    if r5.level != "unknown":
+        assert f"의 {rows[2].note}예요." in r5.summary
+    a = report.amendment
+    assert a is not None and a.text.endswith("이 요청서는 서류를 기준으로 만든 참고 자료이며 법률 자문이 아닙니다.")
+    assert a.terms == report.special_terms
+    assert "근저당 대출을 잔금일에 갚고 말소할 계획인지" not in a.documents  # 서류만 넣는다
 
 
 def test_green_and_unknown_fields():
@@ -979,7 +1004,7 @@ def test_r4_green_when_eulgu_empty_or_cancelled():
 def test_r5_green_still_shows_ratio():
     r = rule(base_request(), "R5")
     assert r.level == "green"
-    assert r.summary == "선순위 0원 + 내 보증금 1,000만 원 = 시세(2억 원, 같은 건물 실거래가)의 5%예요."
+    assert r.summary == "내 보증금 1,000만 원이 시세(2억 원, 같은 건물 실거래가)의 5%예요."
     assert [e.doc for e in r.evidence] == ["contract", "market"]
     assert r.evidence[1].text == "같은 건물 매매 실거래가 2건 기준 2억 원 (2025년 12월 ~ 2026년 11월)"
 
@@ -2199,4 +2224,341 @@ def test_checklist_jeonse_and_date_fallbacks():
         ("계약일", dt.date(2026, 11, 20)),
         ("잔금일", None),
         ("입주일", None),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 계약서·등기부 대조표
+# ---------------------------------------------------------------------------
+
+
+def comparison(req) -> dict[str, tuple]:
+    """{항목: (계약서 쪽, 등기부 쪽, 등급, 결과)}"""
+    report = build_report(req)
+    check_crosscheck(report)
+    return {row.item: (row.contract, row.registry, row.level, row.note) for row in report.comparison}
+
+
+def test_comparison_base_request_all_match():
+    assert comparison(base_request()) == {
+        "임대인": ("김○○", "김○○", "green", "일치"),
+        "소재지·호수": (
+            "경기도 용인시 수지구 죽전동 123-4 죽전○○빌라 302호",
+            "경기도 용인시 수지구 죽전동 123-4 죽전○○빌라 302호",
+            "green",
+            "일치",
+        ),
+        "보증금": ("1,000만 원", "시세 2억 원 (같은 건물 실거래가)", "green", "5%"),
+        "계약일": ("2026년 11월 14일", "2019년 6월 21일 소유권 이전", "green", "변경 없음"),
+        "특약": ("보호 특약 있음", "—", "green", "특약 있음"),
+    }
+
+
+def test_comparison_landlord_row():
+    req = base_request()
+    req.contract.landlord_names = ["이○○ 900101-1234567"]
+    assert comparison(req)["임대인"] == ("이○○", "김○○", "red", "불일치")
+    req.contract.landlord_names = ["김○○"]
+    req.registry.gapgu[-1] = entry("2", "소유권이전", dt.date(2019, 6, 21), "매매", ["김○○", "박○○"])
+    assert comparison(req)["임대인"] == ("김○○", "김○○, 박○○", "yellow", "공동소유")
+    req.contract.landlord_names = []
+    assert comparison(req)["임대인"] == ("계약서에 없음", "김○○, 박○○", "unknown", "확인 못 함")
+    req.manual.landlord_name = "김○○"
+    assert comparison(req)["임대인"][0] == "김○○ (직접 입력)"
+    req.contract = None
+    req.manual.landlord_name = None
+    assert comparison(req)["임대인"][0] is None  # 계약서도 직접 입력도 없다
+
+
+def test_comparison_landlord_row_when_owner_unknown():
+    req = base_request()
+    req.registry.gapgu.append(entry("3", "소유권이전", dt.date(2020, 1, 2), "매매", []))
+    assert comparison(req)["임대인"] == ("김○○", "확인 못 함", "unknown", "확인 못 함")
+
+
+@pytest.mark.parametrize(
+    "contract_ho, address, registry_dong, contract_dong, note",
+    [
+        ("303호", None, None, None, "호수 다름"),
+        (None, "경기도 용인시 수지구 죽전동 123-4 죽전○○빌라", None, None, "호수 없음"),
+        ("302호", None, "101동", "102동", "동 다름"),
+        ("302호", "경기도 용인시 수지구 보정동 55-1 302호", None, None, "주소 확인 필요"),
+    ],
+)
+def test_comparison_address_row_notes(contract_ho, address, registry_dong, contract_dong, note):
+    req = base_request()
+    req.contract.unit = ContractUnit(dong=contract_dong, ho=contract_ho)
+    req.registry.unit.dong = registry_dong
+    if address is not None:
+        req.contract.address = address
+    row = comparison(req)["소재지·호수"]
+    assert row[2:] == ("yellow" if note == "주소 확인 필요" else "red", note)
+
+
+def test_comparison_address_row_values():
+    req = base_request()
+    req.registry.unit.dong = "101동"
+    req.contract.address = "경기도 용인시 수지구 죽전동 123-4 죽전○○빌라"
+    req.contract.unit = ContractUnit(dong="101동", ho="302호")
+    contract, registry, level, note = comparison(req)["소재지·호수"]
+    assert contract == "경기도 용인시 수지구 죽전동 123-4 죽전○○빌라 101동 302호"  # 주소에 없는 동·호 칸을 붙인다
+    assert registry == "경기도 용인시 수지구 죽전동 123-4 죽전○○빌라 101동 302호"
+    assert (level, note) == ("green", "일치")
+    req.contract = None
+    assert comparison(req)["소재지·호수"] == (None, registry, "unknown", "확인 못 함")
+
+
+def test_comparison_deposit_row():
+    req = base_request()
+    req.registry.eulgu = [mortgage(amount=100_000_000)]
+    req.contract.deposit = 80_000_000
+    assert comparison(req)["보증금"] == (
+        "8,000만 원",
+        "시세 2억 원 (같은 건물 실거래가), 선순위 1억 원",
+        "red",
+        "90%",
+    )
+    req.contract.deposit = None
+    req.manual.deposit = 10_000_000
+    req.manual.market_price = 100_000_000
+    assert comparison(req)["보증금"] == (
+        "1,000만 원 (직접 입력)",
+        "시세 1억 원 (직접 입력), 선순위 1억 원",
+        "red",
+        "110%",
+    )
+    req.registry.eulgu = [mortgage(amount=None)]
+    assert comparison(req)["보증금"][1:] == ("시세 1억 원 (직접 입력), 선순위 금액 확인 못 함", "unknown", "확인 못 함")
+    req.registry.eulgu.append(mortgage("2", 30_000_000))
+    assert comparison(req)["보증금"][1] == "시세 1억 원 (직접 입력), 선순위 3,000만 원 이상"
+    req.market = None
+    req.manual.market_price = None
+    req.registry.eulgu = []
+    assert comparison(req)["보증금"][1:] == ("시세 정보 없음", "unknown", "확인 못 함")
+
+
+@pytest.mark.parametrize(
+    "received, note",
+    [
+        (dt.date(2026, 9, 15), "60일 전 소유자 변경"),
+        (TODAY, "당일 소유자 변경"),
+        (dt.date(2026, 11, 20), "6일 뒤 소유자 변경"),
+        (dt.date(2020, 1, 2), "변경 없음"),
+    ],
+)
+def test_comparison_date_row(received, note):
+    req = base_request()
+    req.registry.gapgu.append(entry("3", "소유권이전", received, "매매", ["김○○"]))
+    contract, registry, level, got = comparison(req)["계약일"]
+    assert contract == "2026년 11월 14일"
+    assert registry == f"{received.year}년 {received.month}월 {received.day}일 소유권 이전"
+    assert got == note
+    assert level == ("green" if note == "변경 없음" else "yellow")
+
+
+def test_comparison_date_row_sources():
+    req = base_request()
+    req.contract.contract_date = None
+    req.manual.contract_date = dt.date(2026, 11, 20)
+    req.registry.gapgu = [entry("1", "소유권보존", dt.date(2026, 10, 1), None, ["김○○"])]
+    assert comparison(req)["계약일"] == (
+        "2026년 11월 20일 (직접 입력)",
+        "2026년 10월 1일 소유권 보존",
+        "yellow",
+        "50일 전 소유자 변경",
+    )
+    req.registry.gapgu[0].received_at = None
+    assert comparison(req)["계약일"][1:] == ("확인 못 함", "unknown", "확인 못 함")
+
+
+def test_comparison_terms_row():
+    req = base_request()
+    req.contract.special_terms = ["반려동물은 키우지 않는다."]
+    assert comparison(req)["특약"] == ("보호 특약 없음", "—", "yellow", "특약 없음")
+    req.contract = None
+    assert comparison(req)["특약"] == (None, "—", "unknown", "확인 못 함")
+
+
+def test_comparison_row_failure_is_isolated(monkeypatch):
+    from app.rules import crosscheck
+
+    def boom(ctx, level):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(crosscheck, "ROWS", [(i, rid, boom if rid == "R5" else f) for i, rid, f in crosscheck.ROWS])
+    rows = {row.rule_id: row for row in build_report(base_request()).comparison}
+    assert len(rows) == 5
+    assert (rows["R5"].level, rows["R5"].contract, rows["R5"].note) == ("green", None, "해당 없음")
+    assert rows["R1"].note == "일치"
+
+
+# ---------------------------------------------------------------------------
+# 계약서 수정 요청서
+# ---------------------------------------------------------------------------
+
+
+def amendment(req):
+    report = build_report(req)
+    check_crosscheck(report)
+    return report.amendment
+
+
+def test_amendment_without_fixes_drops_the_fixes_part():
+    a = amendment(base_request())
+    assert (a.title, a.fixes) == ("계약서 수정 요청서", [])
+    assert a.text == (
+        "계약서 수정 요청서\n"
+        "\n"
+        "대상: 경기도 용인시 수지구 죽전동 123-4 죽전○○빌라 302호\n"
+        "작성일: 2026년 11월 14일\n"
+        "\n"
+        "1. 넣어 주실 특약\n"
+        "1) 임대인은 계약 체결 시 국세·지방세 납세증명서와 확정일자 부여현황을 제시한다.\n"
+        "\n"
+        "2. 계약 전에 받아야 할 서류\n"
+        "1) 확정일자 부여현황\n"
+        "2) 국세·지방세 납세증명서\n"
+        "\n"
+        "위 내용을 반영해 주시면 계약을 진행하고 싶습니다. 감사합니다.\n"
+        "\n"
+        "이 요청서는 서류를 기준으로 만든 참고 자료이며 법률 자문이 아닙니다."
+    )
+    assert "고칠 곳" not in a.text
+
+
+def test_amendment_without_contract_is_a_pre_contract_request():
+    req = base_request()
+    req.contract = None
+    req.manual.landlord_name = "이○○"  # R1 🔴이어도 계약서가 없으면 고칠 곳은 없다
+    a = amendment(req)
+    assert (a.title, a.fixes) == ("계약 전 요청서", [])
+    assert a.text.startswith("계약 전 요청서\n\n대상: 경기도 용인시 수지구 포은대로 123 302호\n")
+    assert "고칠 곳" not in a.text
+    assert "5) 위임장" not in a.text and "3) 위임장" in a.text  # R1 🔴 → 위임장·인감증명서
+
+
+def fix_lines(req) -> list[str]:
+    return [line for line in amendment(req).text.split("\n") if line.startswith("- ")]
+
+
+def test_amendment_address_fixes():
+    req = base_request()
+    req.contract.unit.ho = "303호"
+    req.contract.address = "경기도 용인시 수지구 죽전동 123-4 죽전○○빌라 303호"
+    assert fix_lines(req) == [
+        "- 소재지: 경기도 용인시 수지구 죽전동 123-4 죽전○○빌라 303호 → "
+        "경기도 용인시 수지구 죽전동 123-4 죽전○○빌라 302호 (등기부와 호수 다름)"
+    ]
+    req.contract.unit.ho = None
+    req.contract.address = "경기도 용인시 수지구 죽전동 123-4 죽전○○빌라"
+    assert fix_lines(req)[0].endswith("→ 경기도 용인시 수지구 죽전동 123-4 죽전○○빌라 302호 (계약서에 호수 없음)")
+    req.contract.unit.ho = "302호"
+    req.contract.address = "경기도 용인시 수지구 보정동 55-1 302호"
+    assert fix_lines(req)[0].endswith("(등기부 주소와 다르게 적힘)")
+
+
+def test_amendment_landlord_fixes():
+    req = base_request()
+    req.contract.landlord_names = ["이○○"]
+    assert fix_lines(req) == ["- 임대인: 이○○ → 김○○ 명의로 변경 (대리 계약이면 위임장·인감증명서 첨부) (등기부상 소유자와 다름)"]
+    req.contract.agent_name = "최○○"
+    assert fix_lines(req) == ["- 임대인: 이○○ → 소유자 김○○의 위임장·인감증명서 첨부 (대리 계약)"]
+    req.contract.agent_name = None
+    req.registry.gapgu.append(entry("3", "소유권이전, 신탁", dt.date(2020, 1, 2), "신탁", ["○○신탁(주)"]))
+    assert fix_lines(req) == [
+        "- 임대인: 이○○ → ○○신탁(주) 명의로 계약하거나 ○○신탁(주)의 임대 동의서 첨부 (등기부상 소유자는 신탁회사)"
+    ]
+
+
+def test_amendment_co_owner_fix_and_no_fix_when_owner_unknown():
+    req = base_request()
+    req.registry.gapgu[-1] = entry("2", "소유권이전", dt.date(2019, 6, 21), "매매", ["김○○", "박○○"])
+    assert fix_lines(req) == ["- 임대인: 김○○ → 공동 소유자(김○○, 박○○) 모두의 동의서 첨부 (공동소유)"]
+    req.registry.gapgu.append(entry("3", "소유권이전", dt.date(2020, 1, 2), "매매", []))  # R1 ⚪
+    assert fix_lines(req) == []
+
+
+def test_amendment_both_fixes_keep_order_and_numbering():
+    req = base_request()
+    req.contract.unit.ho = "303호"
+    req.contract.landlord_names = ["이○○"]
+    a = amendment(req)
+    assert [f.item for f in a.fixes] == ["소재지", "임대인"]
+    headings = [line for line in a.text.split("\n") if line[:2] in ("1.", "2.", "3.")]
+    assert headings == ["1. 계약서에서 고칠 곳", "2. 넣어 주실 특약", "3. 계약 전에 받아야 할 서류"]
+
+
+def test_amendment_and_comparison_never_show_id_numbers_or_banned_phrases():
+    req = worst_request()
+    for e in req.registry.gapgu + req.registry.eulgu:
+        e.holders = [f"{h} 850315-1234567" for h in e.holders]
+    req.contract.landlord_names = ["이민준 900101-1xxxxxx"]
+    req.contract.address = "경기도 용인시 수지구 죽전동 123-4 죽전○○빌라 303호 (임대인 900101-1234567)"
+    report = build_report(req)
+    texts = [report.amendment.text, *report.amendment.terms, *report.amendment.documents]
+    for f in report.amendment.fixes:
+        texts += [f.item, f.current or "", f.proposed, f.reason]
+    for row in report.comparison:
+        texts += [row.item, row.contract or "", row.registry or "", row.note]
+    assert [t for t in texts if ID_SHAPE.search(t)] == []
+    for text in texts:
+        for phrase in content.BANNED_PHRASES:
+            assert phrase not in text
+
+
+@pytest.mark.parametrize("word, iga", [("1,000만 원", "이"), ("5,678원", "이"), ("사과", "가"), ("서울", "이"), ("이○○", "이")])
+def test_josa_iga(word, iga):
+    assert josa_iga(word) == iga
+
+
+@pytest.mark.parametrize(
+    "deposit, level, percent",
+    [(10_000_000, "green", "5%"), (140_000_000, "yellow", "70%"), (180_000_000, "red", "90%")],
+)
+def test_r5_without_senior_claims_drops_the_zero_term(deposit, level, percent):
+    req = base_request()
+    req.contract.deposit = deposit
+    req.manual.prior_deposits = 0  # 직접 입력한 0도 선순위가 없는 것과 같다
+    r = rule(req, "R5")
+    assert r.level == level
+    money = fmt_money(deposit)
+    assert r.summary.startswith(f"내 보증금 {money}이 시세(2억 원, 같은 건물 실거래가)의 {percent}예요.")
+    assert "선순위" not in r.summary
+
+
+def test_r5_with_senior_claims_keeps_the_sum_form():
+    req = base_request()
+    req.manual.prior_deposits = 20_000_000
+    assert rule(req, "R5").summary == (
+        "선순위 2,000만 원 + 내 보증금 1,000만 원 = 시세(2억 원, 같은 건물 실거래가)의 15%예요."
+    )
+
+
+def test_comparison_without_contract_or_typed_values_leaves_contract_cells_empty():
+    req = base_request()
+    req.contract = None
+    report = build_report(req)
+    check_crosscheck(report)
+    assert [row.contract for row in report.comparison] == [None, None, None, None, None]
+    req.manual.landlord_name = "김○○"
+    req.manual.deposit = 10_000_000
+    req.manual.contract_date = dt.date(2026, 11, 20)
+    contracts = [row.contract for row in build_report(req).comparison]
+    assert contracts == ["김○○ (직접 입력)", None, "1,000만 원 (직접 입력)", "2026년 11월 20일 (직접 입력)", None]
+
+
+def test_comparison_contract_without_value_says_not_in_contract():
+    req = base_request()
+    req.contract.landlord_names = []
+    req.contract.deposit = None
+    req.contract.contract_date = None
+    req.contract.address = None
+    req.contract.unit = ContractUnit()
+    contracts = {row.item: row.contract for row in build_report(req).comparison}
+    assert contracts == {
+        "임대인": "계약서에 없음",
+        "소재지·호수": "계약서에 없음",
+        "보증금": "계약서에 없음",
+        "계약일": "계약서에 없음",
+        "특약": "보호 특약 있음",
     }

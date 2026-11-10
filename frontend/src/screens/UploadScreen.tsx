@@ -152,6 +152,7 @@ export function UploadScreen({
           busy={contractBusy}
           error={contractError}
           describedBy="file-note"
+          hint="계약서를 함께 올리면 임대인·호수·특약을 등기부와 대조해요."
           onPick={pickContract}
           onClear={() => {
             contractPick.current += 1

@@ -126,6 +126,11 @@ def josa_ieyo(word: str) -> str:
     return "예요" if _final_jong(word) == 0 else "이에요"
 
 
+def josa_iga(word: str) -> str:
+    """'이/가'. 받침이 없으면 '가', 판단할 수 없으면 '이'."""
+    return "가" if _final_jong(word) == 0 else "이"
+
+
 def josa_euro(word: str) -> str:
     """'으로/로'. 받침이 없거나 ㄹ이면 '로', 판단할 수 없으면 '으로'."""
     return "로" if _final_jong(word) in (0, 8) else "으로"

@@ -475,7 +475,7 @@ def test_r5_manual_market_label_and_evidence():
     d["manual"]["market_price"] = 100_000_000  # market.price stays 2억
     r = res(run(d), "R5")
     assert r.level == R
-    assert r.summary.startswith("선순위 0원 + 내 보증금 8,000만 원 = 시세(1억 원"), r.summary
+    assert r.summary.startswith("내 보증금 8,000만 원이 시세(1억 원"), r.summary
     assert ")의 80%예요." in r.summary, r.summary
     assert any(e.doc == "manual" for e in r.evidence), r.evidence
 

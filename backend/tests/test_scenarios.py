@@ -168,7 +168,7 @@ def test_scenario_c_copy_matches_prd():
     assert [(e.doc, e.page) for e in res["R1"].evidence] == [("registry", 2), ("contract", None)]
     assert res["R2"].summary.startswith("등기부상 소유권이 ○○부동산신탁(주)에게 넘어가 있어요.")
     assert res["R5"].summary.startswith(
-        "선순위 0원 + 내 보증금 1억 8,000만 원 = 시세(2억 원, 같은 건물 실거래가)의 90%예요."
+        "내 보증금 1억 8,000만 원이 시세(2억 원, 같은 건물 실거래가)의 90%예요."
     )
     assert "market" in [e.doc for e in res["R5"].evidence]
     assert res["R8"].summary.startswith("2026년 8월 26일에 소유권이 신탁으로 바뀌었어요 (기준일 80일 전).")
@@ -198,7 +198,7 @@ def test_market_evidence_reads_as_plain_korean(name):
 
 def test_scenario_a_and_b_details():
     a = {r.id: r for r in build_report(load("A")).results}
-    assert a["R5"].summary == "선순위 0원 + 내 보증금 1,000만 원 = 시세(2억 원, 같은 건물 실거래가)의 5%예요."
+    assert a["R5"].summary == "내 보증금 1,000만 원이 시세(2억 원, 같은 건물 실거래가)의 5%예요."
 
     report = build_report(load("B"))
     b = {r.id: r for r in report.results}
@@ -298,3 +298,120 @@ def test_demo_mode_copy_matches_endpoint_usage(name):
     req = load(name)
     again = CheckRequest.model_validate_json(req.model_copy(update={"mode": "demo"}).model_dump_json())
     assert levels(build_report(again)) == EXPECTED[name]
+
+
+# ---------------------------------------------------------------------------
+# 계약서·등기부 대조표와 계약서 수정 요청서
+# ---------------------------------------------------------------------------
+
+C_ADDRESS = "경기도 용인시 수지구 죽전동 789-1 ○○파크빌 302호"
+
+
+def rows(report: Report) -> list[tuple]:
+    return [(r.item, r.rule_id, r.contract, r.registry, r.level, r.note) for r in report.comparison]
+
+
+@pytest.mark.parametrize("name", SCENARIOS)
+@pytest.mark.parametrize("variant", ["full", "p0"])
+def test_comparison_levels_equal_rule_levels(name, variant):
+    report = build_report(load(name) if variant == "full" else p0_only(name))
+    by_rule = levels(report)
+    assert [(r.item, r.rule_id) for r in report.comparison] == [
+        ("임대인", "R1"),
+        ("소재지·호수", "R11"),
+        ("보증금", "R5"),
+        ("계약일", "R8"),
+        ("특약", "R12"),
+    ]
+    assert all(r.level == by_rule[r.rule_id] for r in report.comparison)
+
+
+def test_scenario_c_comparison():
+    assert rows(build_report(load("C"))) == [
+        ("임대인", "R1", "이○○", "○○부동산신탁(주)", "red", "불일치"),
+        ("소재지·호수", "R11", C_ADDRESS, C_ADDRESS, "green", "일치"),
+        ("보증금", "R5", "1억 8,000만 원", "시세 2억 원 (같은 건물 실거래가)", "red", "90%"),
+        ("계약일", "R8", "2026년 11월 14일", "2026년 8월 26일 소유권 이전", "yellow", "80일 전 소유자 변경"),
+        ("특약", "R12", "보호 특약 없음", "—", "yellow", "특약 없음"),
+    ]
+
+
+def test_scenario_c_amendment():
+    a = build_report(load("C")).amendment
+    assert a.title == "계약서 수정 요청서"
+    assert [(f.item, f.current) for f in a.fixes] == [("임대인", "이○○")]
+    assert "○○부동산신탁(주) 명의로 계약하거나 ○○부동산신탁(주)의 임대 동의서 첨부" == a.fixes[0].proposed
+    assert len(a.terms) >= 3
+    assert {"신탁원부", "신탁회사(수탁자)의 임대 동의서"} <= set(a.documents)
+    assert a.text.startswith(f"계약서 수정 요청서\n\n대상: {C_ADDRESS}\n작성일: 2026년 11월 14일\n\n1. 계약서에서 고칠 곳\n")
+    assert "\n2. 넣어 주실 특약\n1) " in a.text and "\n3. 계약 전에 받아야 할 서류\n1) 확정일자 부여현황\n" in a.text
+    assert a.text.endswith(
+        "위 내용을 반영해 주시면 계약을 진행하고 싶습니다. 감사합니다.\n\n"
+        "이 요청서는 서류를 기준으로 만든 참고 자료이며 법률 자문이 아닙니다."
+    )
+
+
+def test_scenario_a_amendment_has_no_fixes_part_and_is_renumbered():
+    report = build_report(load("A"))
+    a = report.amendment
+    assert a.fixes == []
+    assert "고칠 곳" not in a.text
+    assert "\n1. 넣어 주실 특약\n" in a.text and "\n2. 계약 전에 받아야 할 서류\n" in a.text
+    assert all(r.note in ("일치", "5%", "변경 없음", "특약 있음") for r in report.comparison)
+
+
+def test_scenario_b_comparison():
+    assert rows(build_report(load("B"))) == [
+        ("임대인", "R1", "박○○", "박○○", "green", "일치"),
+        (
+            "소재지·호수",
+            "R11",
+            "경기도 용인시 수지구 죽전동 456-7 ○○하우스 203호",
+            "경기도 용인시 수지구 죽전동 456-7",
+            "green",
+            "일치",
+        ),
+        ("보증금", "R5", "3,000만 원", "시세 정보 없음, 선순위 1억 2,000만 원", "unknown", "확인 못 함"),
+        ("계약일", "R8", "2026년 11월 14일", "2026년 9월 15일 소유권 이전", "yellow", "60일 전 소유자 변경"),
+        ("특약", "R12", "보호 특약 없음", "—", "yellow", "특약 없음"),
+    ]
+
+
+MORTGAGE_QUESTION = "근저당 대출을 잔금일에 갚고 말소할 계획인지"
+
+
+@pytest.mark.parametrize("name", SCENARIOS)
+def test_amendment_reuses_special_terms_and_request_documents(name):
+    report = build_report(load(name))
+    assert report.amendment.terms == report.special_terms
+    numbered = [line.split(". ", 1)[1] for line in report.request_message.split("\n") if line[:1].isdigit()]
+    assert report.amendment.documents == [item for item in numbered if item != MORTGAGE_QUESTION]  # 서류만
+    assert MORTGAGE_QUESTION not in report.amendment.text
+
+
+def test_scenario_b_amendment_lists_documents_only():
+    report = build_report(load("B"))
+    assert "3. 근저당 대출을 잔금일에 갚고 말소할 계획인지" in report.request_message  # 요청 메시지는 그대로
+    a = report.amendment
+    assert a.documents == ["확정일자 부여현황", "국세·지방세 납세증명서"]
+    assert a.fixes == []
+    assert a.text == (
+        "계약서 수정 요청서\n"
+        "\n"
+        "대상: 경기도 용인시 수지구 죽전동 456-7 ○○하우스 203호\n"
+        "작성일: 2026년 11월 14일\n"
+        "\n"
+        "1. 넣어 주실 특약\n"
+        "1) 임대인은 잔금일 다음 날까지 저당권 등 담보권을 설정하지 않는다. "
+        "위반 시 임차인은 계약을 해제할 수 있고, 임대인은 받은 금액 전부를 즉시 반환한다.\n"
+        "2) 임대인은 잔금일까지 등기부상 근저당권(채권최고액 1억 2,000만 원)을 말소한다.\n"
+        "3) 임대인은 계약 체결 시 국세·지방세 납세증명서와 확정일자 부여현황을 제시한다.\n"
+        "\n"
+        "2. 계약 전에 받아야 할 서류\n"
+        "1) 확정일자 부여현황\n"
+        "2) 국세·지방세 납세증명서\n"
+        "\n"
+        "위 내용을 반영해 주시면 계약을 진행하고 싶습니다. 감사합니다.\n"
+        "\n"
+        "이 요청서는 서류를 기준으로 만든 참고 자료이며 법률 자문이 아닙니다."
+    )

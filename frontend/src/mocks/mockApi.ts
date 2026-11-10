@@ -16,7 +16,9 @@ import type {
   IcsRequest,
   Report,
 } from '../api/types'
+import { formatDate, formatWon } from '../lib/format'
 import {
+  amendmentText,
   REPORT_A,
   REPORT_A_INCOMPLETE,
   REPORT_B,
@@ -33,9 +35,9 @@ const ERROR_TEXT: Record<ErrorCode, string> = {
   NOT_REGISTRY: '등기부등본이 아닌 것 같아요. 인터넷등기소에서 받은 PDF를 올려주세요.',
   LAND_REGISTRY: '토지 등기부예요. 건물(또는 집합건물) 등기부를 올려주세요.',
   NOT_CONTRACT: '임대차 계약서가 아닌 것 같아요.',
-  AI_FAILED: '문서를 읽지 못했어요. 잠시 후 다시 시도하거나 데모를 이용해 주세요.',
-  NOT_FOUND: '데모 데이터를 찾지 못했어요. 데모 시나리오는 A, B, C예요.',
-  INTERNAL_ERROR: '일시적인 오류가 생겼어요. 잠시 후 다시 시도하거나 데모를 이용해 주세요.',
+  AI_FAILED: '문서를 읽지 못했어요. 잠시 후 다시 시도하거나 예시 결과를 확인해 주세요.',
+  NOT_FOUND: '예시 데이터를 찾지 못했어요. 예시는 A, B, C예요.',
+  INTERNAL_ERROR: '일시적인 오류가 생겼어요. 잠시 후 다시 시도하거나 예시 결과를 확인해 주세요.',
 }
 
 // backend/app/errors.py의 HTTP 상태
@@ -104,7 +106,28 @@ export async function check(req: CheckRequest, signal?: AbortSignal): Promise<Re
     (req.contract === null || req.contract.landlord_names.length === 0) && !req.manual.landlord_name
   const source = lastScenario === 'A' && noLandlord ? REPORT_A_INCOMPLETE : REPORTS[lastScenario]
   const report = structuredClone(source)
+  if (req.contract === null) withoutContract(report, req)
   return { ...report, mode: req.mode, today: req.today ?? report.today }
+}
+
+/** 계약서 없이 검사했을 때: 대조표 계약서 칸은 직접 입력한 값, 없으면 null (화면 "—"). 요청서는 "계약 전 요청서" */
+function withoutContract(report: Report, req: CheckRequest) {
+  const m = req.manual
+  const manualValue: Record<string, string | null> = {
+    R1: m.landlord_name,
+    R5: m.deposit !== null ? formatWon(m.deposit) : null,
+    R8: m.contract_date ? formatDate(m.contract_date) : null,
+  }
+  report.comparison = report.comparison.map((row) => {
+    const value = manualValue[row.rule_id] ?? null
+    if (value) return { ...row, contract: value }
+    return { ...row, contract: null, level: 'unknown', note: '확인 못 함' }
+  })
+  if (report.amendment) {
+    const base = { ...report.amendment, title: '계약 전 요청서', fixes: [] }
+    const address = req.registry.address_road ?? req.registry.address_jibun ?? '계약하려는 집'
+    report.amendment = { ...base, text: amendmentText(base, address, '2026년 11월 14일') }
+  }
 }
 
 export async function demo(scenario: DemoScenario, signal?: AbortSignal): Promise<CheckRequest> {

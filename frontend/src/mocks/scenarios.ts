@@ -1,7 +1,7 @@
 // 개발용 가짜 데이터. 주소에 ?mock=1이 있을 때만 쓴다 (src/api/client.ts).
 // 예시 A·B·C와 규칙 문구를 따른다. 실제 예시 데이터는 백엔드 demo/*.json이 기준이다.
 
-import type { CheckRequest, Report, RuleResult } from '../api/types'
+import type { Amendment, AmendmentFix, CheckRequest, ComparisonRow, Report, RuleResult } from '../api/types'
 import { RULE_NAMES } from '../api/types'
 
 const DISCLAIMER =
@@ -56,6 +56,58 @@ function checklist(jeonse: boolean): Report['checklist'] {
     ...(jeonse ? [{ when: '입주 후', date: null, title: '전세보증금 반환보증 가입' }] : []),
     { when: '입주 후', date: null, title: '계약서 원본 보관' },
   ]
+}
+
+
+/** 계약서 수정 요청서 문안. 비어 있는 부분은 빼고 번호를 다시 매긴다. */
+export function amendmentText(a: Omit<Amendment, 'text'>, address: string, todayText: string): string {
+  const parts: string[] = []
+  let n = 0
+  if (a.fixes.length) {
+    n += 1
+    parts.push(`${n}. 계약서에서 고칠 곳`, ...a.fixes.map((f) => `- ${f.item}: ${f.current ?? '없음'} → ${f.proposed} (${f.reason})`), '')
+  }
+  if (a.terms.length) {
+    n += 1
+    parts.push(`${n}. 넣어 주실 특약`, ...a.terms.map((t, i) => `${i + 1}) ${t}`), '')
+  }
+  if (a.documents.length) {
+    n += 1
+    parts.push(`${n}. 계약 전에 받아야 할 서류`, ...a.documents.map((d, i) => `${i + 1}) ${d}`), '')
+  }
+  return [
+    a.title,
+    '',
+    `대상: ${address}`,
+    `작성일: ${todayText}`,
+    '',
+    ...parts,
+    '위 내용을 반영해 주시면 계약을 진행하고 싶습니다. 감사합니다.',
+    '',
+    '이 요청서는 서류를 기준으로 만든 참고 자료이며 법률 자문이 아닙니다.',
+  ].join('\n')
+}
+
+function amendment(
+  title: string,
+  fixes: AmendmentFix[],
+  terms: string[],
+  documents: string[],
+  address: string,
+): Amendment {
+  const base = { title, fixes, terms, documents }
+  return { ...base, text: amendmentText(base, address, '2026년 11월 14일') }
+}
+
+function row(
+  item: string,
+  rule_id: string,
+  contract: string | null,
+  registry: string | null,
+  level: ComparisonRow['level'],
+  note: string,
+): ComparisonRow {
+  return { item, rule_id, contract, registry, level, note }
 }
 
 const USE_LINES_3F = [
@@ -251,6 +303,27 @@ export const REPORT_C: Report = {
     },
     green('R13'),
   ],
+  comparison: [
+    row('임대인', 'R1', '이○○', '○○부동산신탁(주)', 'red', '불일치'),
+    row('소재지·호수', 'R11', C_ADDRESS, '경기도 용인시 수지구 죽전동 123-4 ○○빌라 302호', 'green', '일치'),
+    row('보증금', 'R5', '1억 8,000만 원', '시세 2억 원', 'red', '90%'),
+    row('계약일', 'R8', '2026년 11월 14일', '소유권 이전 2026년 8월 26일', 'yellow', '80일 전 소유자 변경'),
+    row('특약', 'R12', '보호 특약 없음', null, 'yellow', '특약 없음'),
+  ],
+  amendment: amendment(
+    '계약서 수정 요청서',
+    [
+      {
+        item: '임대인',
+        current: '이○○',
+        proposed: '소유자 ○○부동산신탁(주) 명의 (대리 계약이면 신탁회사의 임대 동의서·위임장·인감증명서 첨부)',
+        reason: '등기부상 소유자와 계약서의 임대인이 달라요',
+      },
+    ],
+    [TERM_NO_LIEN, TERM_JEONSE, TERM_ALWAYS, TERM_TRUST],
+    ['확정일자 부여현황', '국세·지방세 납세증명서', '신탁원부', '신탁회사(수탁자)의 임대 동의서', '위임장', '인감증명서'],
+    C_ADDRESS,
+  ),
   request_message: requestMessage(C_ADDRESS, [
     '확정일자 부여현황',
     '국세·지방세 납세증명서',
@@ -456,6 +529,24 @@ export const REPORT_B: Report = {
       unknown_reason: null,
     },
   ],
+  comparison: [
+    row('임대인', 'R1', '정○○', '정○○', 'green', '일치'),
+    row('소재지·호수', 'R11', B_ADDRESS, '경기도 용인시 수지구 죽전동 78-9', 'green', '일치'),
+    row('보증금', 'R5', '3,000만 원', '시세 없음', 'unknown', '확인 못 함'),
+    row('계약일', 'R8', '2026년 11월 14일', '소유권 이전 2026년 9월 15일', 'yellow', '60일 전 소유자 변경'),
+    row('특약', 'R12', '보호 특약 없음', null, 'yellow', '특약 없음'),
+  ],
+  amendment: amendment(
+    '계약서 수정 요청서',
+    [],
+    [
+      TERM_NO_LIEN,
+      '임대인은 잔금일까지 등기부상 근저당권(채권최고액 1억 2,000만 원)을 말소한다.',
+      TERM_ALWAYS,
+    ],
+    ['확정일자 부여현황', '국세·지방세 납세증명서', '근저당 대출을 잔금일에 갚고 말소할 계획인지'],
+    B_ADDRESS,
+  ),
   request_message: requestMessage(B_ADDRESS, [
     '확정일자 부여현황',
     '국세·지방세 납세증명서',
@@ -555,6 +646,14 @@ export const REQUEST_A: CheckRequest = {
   mode: 'demo',
 }
 
+const A_COMPARISON: ComparisonRow[] = [
+  row('임대인', 'R1', '김○○', '김○○', 'green', '일치'),
+  row('소재지·호수', 'R11', A_ADDRESS, '경기도 용인시 수지구 죽전동 45-6 △△빌라 302호', 'green', '일치'),
+  row('보증금', 'R5', '1,000만 원', '시세 2억 원', 'green', '5%'),
+  row('계약일', 'R8', '2026년 11월 14일', '소유권 이전 2019년 4월 17일', 'green', '변경 없음'),
+  row('특약', 'R12', '보호 특약 있음', null, 'green', '특약 있음'),
+]
+
 export const REPORT_A: Report = {
   mode: 'demo',
   generated_at: GENERATED_AT,
@@ -585,6 +684,8 @@ export const REPORT_A: Report = {
     green('R12'),
     green('R13'),
   ],
+  comparison: A_COMPARISON,
+  amendment: amendment('계약서 수정 요청서', [], [TERM_ALWAYS], ['확정일자 부여현황', '국세·지방세 납세증명서'], A_ADDRESS),
   request_message: requestMessage(A_ADDRESS, ['확정일자 부여현황', '국세·지방세 납세증명서']),
   special_terms: [TERM_ALWAYS],
   checklist: checklist(false),
@@ -605,6 +706,9 @@ export const REPORT_A_INCOMPLETE: Report = {
     unknown_note: '확인하지 못한 항목 1개',
   },
   counts: { red: 0, yellow: 0, unknown: 1, green: 12 },
+  comparison: A_COMPARISON.map((r) =>
+    r.rule_id === 'R1' ? { ...r, contract: null, level: 'unknown', note: '확인 못 함' } : r,
+  ),
   results: REPORT_A.results.map(
     (r): RuleResult =>
       r.id === 'R1' ? { ...r, level: 'unknown', unknown_reason: '임대인 이름을 확인하지 못했어요.' } : r,

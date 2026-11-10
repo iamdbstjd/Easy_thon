@@ -1,4 +1,4 @@
-"""리포트 문구: 종합 배너, 서류 요청 메시지, 추천 특약, 일정 체크리스트, 고지문.
+"""리포트 문구: 종합 배너, 서류 요청 메시지, 추천 특약, 일정 체크리스트, 수정 요청서 문안, 고지문.
 
 규칙 판정 결과(등급)만 받아 문구를 고른다. 판정은 engine.py가 한다.
 """
@@ -8,7 +8,9 @@ from __future__ import annotations
 import datetime as dt
 from typing import Mapping, Optional
 
-from app.schemas import ChecklistItem, Overall
+from app.schemas import AmendmentFix, ChecklistItem, Overall
+
+from .common import fmt_date
 
 # ---------------------------------------------------------------------------
 # 7.3 종합 판정
@@ -97,6 +99,11 @@ def request_items(levels: Mapping[str, str], has_agent: bool, has_mortgage: bool
     return items
 
 
+def amendment_documents(items: list[str]) -> list[str]:
+    """요청서의 "받아야 할 서류": 요청 항목 중 서류만 (근저당 말소 계획 질문은 특약이 대신한다)."""
+    return [item for item in items if item not in REQUEST_MORTGAGE]
+
+
 def build_request_message(address: Optional[str], items: list[str]) -> str:
     numbered = "\n".join(f"{i}. {item}" for i, item in enumerate(items, start=1))
     return REQUEST_TEMPLATE.format(address=(address or "").strip() or ADDRESS_FALLBACK, items=numbered)
@@ -173,6 +180,44 @@ def build_checklist(
         rows.append(("입주 후", None, "전세보증금 반환보증 가입"))
     rows.append(("입주 후", None, "계약서 원본 보관"))
     return [ChecklistItem(when=when, date=date, title=title) for when, date, title in rows]
+
+
+# ---------------------------------------------------------------------------
+# 12.6 계약서 수정 요청서
+# ---------------------------------------------------------------------------
+
+AMENDMENT_TITLE = "계약서 수정 요청서"
+AMENDMENT_TITLE_NO_CONTRACT = "계약 전 요청서"
+AMENDMENT_SECTION_FIXES = "계약서에서 고칠 곳"
+AMENDMENT_SECTION_TERMS = "넣어 주실 특약"
+AMENDMENT_SECTION_DOCUMENTS = "계약 전에 받아야 할 서류"
+AMENDMENT_CLOSING = "위 내용을 반영해 주시면 계약을 진행하고 싶습니다. 감사합니다."
+AMENDMENT_NOTICE = "이 요청서는 서류를 기준으로 만든 참고 자료이며 법률 자문이 아닙니다."
+
+
+def build_amendment_text(
+    title: str,
+    address: Optional[str],
+    written: dt.date,
+    fixes: list[AmendmentFix],
+    terms: list[str],
+    documents: list[str],
+) -> str:
+    """복사·인쇄용 요청서 전체 문안. 비어 있는 부분은 빼고 번호를 다시 매긴다."""
+    sections: list[tuple[str, list[str]]] = []
+    if fixes:
+        sections.append(
+            (AMENDMENT_SECTION_FIXES, [f"- {f.item}: {f.current} → {f.proposed} ({f.reason})" for f in fixes])
+        )
+    if terms:
+        sections.append((AMENDMENT_SECTION_TERMS, [f"{i}) {t}" for i, t in enumerate(terms, start=1)]))
+    if documents:
+        sections.append((AMENDMENT_SECTION_DOCUMENTS, [f"{i}) {d}" for i, d in enumerate(documents, start=1)]))
+    lines = [title, "", f"대상: {(address or '').strip() or ADDRESS_FALLBACK}", f"작성일: {fmt_date(written)}"]
+    for number, (heading, body) in enumerate(sections, start=1):
+        lines += ["", f"{number}. {heading}", *body]
+    lines += ["", AMENDMENT_CLOSING, "", AMENDMENT_NOTICE]
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

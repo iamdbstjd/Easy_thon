@@ -3,8 +3,10 @@ import type { ReactNode } from 'react'
 import { checklistIcs } from '../api/client'
 import { errorMessage } from '../api/errors'
 import type {
+  Amendment,
   ChecklistItem,
   CheckRequest,
+  ComparisonRow,
   Counts,
   Evidence,
   ManualInput,
@@ -18,6 +20,7 @@ import { Grade } from '../components/Grade'
 import { CHECKLIST_WHEN_ORDER, COUNT_LABEL, DOC_LABEL, LEVEL_LABEL, ruleNumber } from '../content/labels'
 import { HELP_LINKS, OFF_REGISTRY_ROWS, SPECIAL_TERMS_NOTE } from '../content/static'
 import { formatDate, isoToLocalInput } from '../lib/format'
+import { keepTogether } from '../lib/keepTogether'
 import { maskIds } from '../lib/mask'
 import { useScreenFocus } from '../lib/useScreenFocus'
 
@@ -54,8 +57,17 @@ export function ReportScreen({
   const icsAddress =
     request?.contract?.address ?? request?.registry.address_road ?? request?.registry.address_jibun ?? null
 
-  // 본문 절: 내용이 없는 절은 빼고 번호를 다시 매긴다
+  // 본문 절: 1 대조 → 2 위험 신호 → 3 요청서 → 4 일정 → 5 참고.
+  // 내용이 없는 절은 빼고 번호를 다시 매긴다.
   const sections: { key: string; render: (n: number) => ReactNode }[] = []
+  if (report.comparison.length > 0) {
+    sections.push({
+      key: 'comparison',
+      render: (n) => (
+        <Comparison number={n} rows={report.comparison} hasContract={!!request?.contract} />
+      ),
+    })
+  }
   if (sorted.length > 0) {
     sections.push({
       key: 'signals',
@@ -99,7 +111,22 @@ export function ReportScreen({
       ),
     })
   }
-  if (report.request_message) {
+  const { amendment } = report
+  if (amendment) {
+    sections.push({
+      key: 'amendment',
+      render: (n) => (
+        <AmendmentSection
+          number={n}
+          amendment={amendment}
+          address={target?.address ?? null}
+          date={formatDate(report.today)}
+        />
+      ),
+    })
+  }
+  // amendment가 없는 예전 백엔드: 예전 두 절(메시지, 특약)로 보여준다
+  if (!amendment && report.request_message) {
     const message = maskIds(report.request_message)
     sections.push({
       key: 'message',
@@ -114,7 +141,7 @@ export function ReportScreen({
       ),
     })
   }
-  if (report.special_terms.length > 0) {
+  if (!amendment && report.special_terms.length > 0) {
     sections.push({
       key: 'terms',
       render: (n) => (
@@ -255,6 +282,195 @@ export function ReportScreen({
   )
 }
 
+/** 대조표 값: 없으면 "—", 주민등록번호 모양은 가리고 지번은 한 줄로 묶는다 */
+function cellValue(value: string | null): ReactNode {
+  return value ? keepTogether(maskIds(value)) : '—'
+}
+
+/** 1절: 계약서·등기부 대조표 (F14). 항목 | 계약서 | 등기부·시세 | 결과 */
+function Comparison({
+  number,
+  rows,
+  hasContract,
+}: {
+  number: number
+  rows: ComparisonRow[]
+  hasContract: boolean
+}) {
+  return (
+    <section className="doc-section" aria-labelledby="sec-compare">
+      <h2 id="sec-compare">{number}. 계약서·등기부 대조</h2>
+      <table className="cmp-table">
+        <caption className="visually-hidden">계약서 값과 등기부·시세 값을 나란히 놓은 대조표</caption>
+        <thead>
+          <tr>
+            <th scope="col">항목</th>
+            <th scope="col">계약서</th>
+            <th scope="col">등기부·시세</th>
+            <th scope="col">결과</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const word = COUNT_LABEL[row.level]
+            const note = maskIds(row.note.trim())
+            // 🔴·🟡: 등급 단어 + 결과 ("위험 불일치"). 🟢·⚪: 결과만 등급 색으로 ("일치", "확인 못 함")
+            const flaggedRow = row.level === 'red' || row.level === 'yellow'
+            return (
+              <tr key={`${row.rule_id}-${row.item}`} className={`cmp-row cmp-${row.level}`}>
+                <th scope="row" className="c-item">
+                  {row.item}
+                </th>
+                <td className="c-val" data-label="계약서">
+                  <span className="c-text">{cellValue(row.contract)}</span>
+                </td>
+                <td className="c-val" data-label="등기부·시세">
+                  <span className="c-text">{cellValue(row.registry)}</span>
+                </td>
+                <td className="c-result">
+                  {flaggedRow ? (
+                    <>
+                      <span className={`grade grade-${row.level}`}>{word}</span>
+                      {note && note !== word && ` ${note}`}
+                    </>
+                  ) : (
+                    <span className={`grade-${row.level}`}>{note || word}</span>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      {!hasContract && <p className="muted">계약서를 올리면 임대인·호수·특약을 대조할 수 있어요.</p>}
+    </section>
+  )
+}
+
+const PART_MARKS = ['가', '나', '다']
+
+/**
+ * 3절: 계약서 수정 요청서 (F15). 계약서가 없으면 서버가 제목을 "계약 전 요청서"로 보낸다.
+ * [복사]는 amendment.text 전체, [인쇄]는 이 절만 A4로 인쇄한다 (styles.css의 @media print).
+ */
+function AmendmentSection({
+  number,
+  amendment,
+  address,
+  date,
+}: {
+  number: number
+  amendment: Amendment
+  address: string | null
+  date: string
+}) {
+  const parts: { key: string; title: string; body: ReactNode }[] = []
+  if (amendment.fixes.length > 0) {
+    parts.push({
+      key: 'fixes',
+      title: '계약서에서 고칠 곳',
+      body: (
+        <ul className="fix-list">
+          {amendment.fixes.map((fix, i) => (
+            <li key={i}>
+              <p>
+                <strong>{fix.item}</strong>: {fix.current ? maskIds(fix.current) : '없음'} →{' '}
+                {maskIds(fix.proposed)}
+              </p>
+              {fix.reason && <p className="muted">이유: {maskIds(fix.reason)}</p>}
+            </li>
+          ))}
+        </ul>
+      ),
+    })
+  }
+  if (amendment.terms.length > 0) {
+    parts.push({
+      key: 'terms',
+      title: '넣어 주실 특약',
+      body: (
+        <ol className="paren-list">
+          {amendment.terms.map((term, i) => (
+            <li key={i}>{term}</li>
+          ))}
+        </ol>
+      ),
+    })
+  }
+  if (amendment.documents.length > 0) {
+    parts.push({
+      key: 'documents',
+      title: '계약 전에 받을 서류',
+      body: (
+        <ol className="paren-list">
+          {amendment.documents.map((doc, i) => (
+            <li key={i}>{doc}</li>
+          ))}
+        </ol>
+      ),
+    })
+  }
+
+  return (
+    <section className="doc-section amendment" aria-labelledby="sec-amendment">
+      <div className="section-head">
+        <h2 id="sec-amendment">
+          <span className="no-print">{number}. </span>
+          {amendment.title}
+        </h2>
+        <span className="head-links no-print">
+          <CopyButton text={maskIds(amendment.text)} label={`${amendment.title} 복사`} />
+          <button type="button" className="link" onClick={() => window.print()}>
+            인쇄
+          </button>
+        </span>
+      </div>
+      <dl className="rows print-only">
+        {address && (
+          <div className="row">
+            <dt>대상</dt>
+            <dd>{keepTogether(maskIds(address))}</dd>
+          </div>
+        )}
+        <div className="row">
+          <dt>작성일</dt>
+          <dd>{date}</dd>
+        </div>
+      </dl>
+      {parts.map((part, i) => (
+        <div key={part.key} className="amend-part">
+          {/* 화면: 검토서 절 번호와 겹치지 않게 가·나·다. 인쇄: 12.6 문안대로 1·2·3 */}
+          <h3>
+            <span className="no-print">{PART_MARKS[i]}. </span>
+            <span className="print-inline">{i + 1}. </span>
+            {part.title}
+          </h3>
+          {part.body}
+        </div>
+      ))}
+      <p className="muted no-print">{SPECIAL_TERMS_NOTE}</p>
+      <p className="print-only">위 내용을 반영해 주시면 계약을 진행하고 싶습니다. 감사합니다.</p>
+      <dl className="rows print-only sign-rows">
+        <div className="row">
+          <dt>받는 분</dt>
+          <dd>
+            <span className="sign-line" />
+          </dd>
+        </div>
+        <div className="row">
+          <dt>요청인</dt>
+          <dd>
+            <span className="sign-line" /> (서명)
+          </dd>
+        </div>
+      </dl>
+      <p className="print-only print-foot">
+        이 요청서는 서류를 기준으로 만든 참고 자료이며 법률 자문이 아닙니다.
+      </p>
+    </section>
+  )
+}
+
 /** 등급별 개수: 위험 3건 · 주의 2건 · 해당 없음 8건 · 확인 못 함 1건 */
 function CountsLine({ counts }: { counts: Counts }) {
   const items: ReactNode[] = []
@@ -278,19 +494,6 @@ function CountTitle({ level, count }: { level: 'green' | 'unknown'; count: numbe
     <>
       <span className={`grade grade-${level}`}>{COUNT_LABEL[level]}</span> ({count}건)
     </>
-  )
-}
-
-/** 지번("789-1")이 줄 끝에서 갈라지지 않게 묶는다 */
-function keepTogether(text: string): ReactNode[] {
-  return text.split(/(\d+(?:-\d+)+)/).map((part, i) =>
-    i % 2 === 1 ? (
-      <span key={i} className="nowrap">
-        {part}
-      </span>
-    ) : (
-      part
-    ),
   )
 }
 

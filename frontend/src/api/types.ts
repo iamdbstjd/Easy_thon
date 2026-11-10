@@ -191,6 +191,45 @@ export interface ChecklistItem {
   title: string
 }
 
+/** 계약서·등기부 대조표의 한 행 (F14). 등급은 rule_id 규칙의 등급과 같다. */
+export interface ComparisonRow {
+  /** "임대인" · "소재지·호수" · "보증금" · "계약일" · "특약" */
+  item: string
+  /** "R1" · "R11" · "R5" · "R8" · "R12" */
+  rule_id: string
+  /** 계약서(또는 직접 입력) 쪽 값, 화면 표시용 */
+  contract: string | null
+  /** 등기부·시세 쪽 값, 화면 표시용 */
+  registry: string | null
+  level: Level
+  /** 짧은 결과 ("일치", "불일치", "90%", "80일 전 소유자 변경" …) */
+  note: string
+}
+
+/** 계약서에서 고칠 곳 한 줄 (F15) */
+export interface AmendmentFix {
+  /** "임대인" · "소재지" */
+  item: string
+  /** 계약서의 지금 값 */
+  current: string | null
+  /** 고칠 값 */
+  proposed: string
+  reason: string
+}
+
+/** 계약서 수정 요청서 (계약서가 없으면 계약 전 요청서) (F15) */
+export interface Amendment {
+  /** "계약서 수정 요청서" · "계약 전 요청서" */
+  title: string
+  fixes: AmendmentFix[]
+  /** 넣어 주실 특약 */
+  terms: string[]
+  /** 계약 전에 받을 서류 */
+  documents: string[]
+  /** 복사·인쇄용 전체 문안 */
+  text: string
+}
+
 export interface Report {
   mode: Mode
   generated_at: ISODateTime
@@ -198,6 +237,10 @@ export interface Report {
   overall: Overall
   counts: Counts
   results: RuleResult[]
+  /** 계약서·등기부 대조표 (F14) */
+  comparison: ComparisonRow[]
+  /** 계약서 수정 요청서 (F15). 이 필드가 없는 예전 백엔드면 null */
+  amendment: Amendment | null
   request_message: string | null
   special_terms: string[]
   checklist: ChecklistItem[]

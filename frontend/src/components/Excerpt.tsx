@@ -1,3 +1,4 @@
+import { keepTogether } from '../lib/keepTogether'
 import { maskIds } from '../lib/mask'
 
 /**
@@ -8,7 +9,7 @@ export function Excerpt({ caption, text }: { caption: string; text: string }) {
   return (
     <figure className="excerpt">
       <figcaption className="excerpt-caption">{caption}</figcaption>
-      <blockquote className="excerpt-text">{maskIds(text)}</blockquote>
+      <blockquote className="excerpt-text">{keepTogether(maskIds(text))}</blockquote>
     </figure>
   )
 }

@@ -1,4 +1,4 @@
-"""규칙 엔진: R1–R13 판정, 종합 판정, 리포트 조립.
+"""규칙 엔진: R1–R13 판정과 판정에 쓰는 값 (대조표·요청서도 같은 값을 쓴다).
 
 - AI나 외부 API를 부르지 않는다. 같은 입력이면 generated_at 말고는 같은 결과가 나온다.
 - 규칙은 서로 독립적으로 계산한다. 한 규칙이 실패해도 그 규칙만 ⚪가 된다.
@@ -17,12 +17,10 @@ from app.schemas import (
     RULE_NAMES,
     CheckRequest,
     ContractExtract,
-    Counts,
     Entry,
     Evidence,
     ManualInput,
     RegistryExtract,
-    Report,
     RuleResult,
 )
 
@@ -39,16 +37,15 @@ from .common import (
     is_floor_line,
     jibun_core,
     josa_euro,
+    josa_iga,
     josa_ieyo,
     line_has_floor,
     mask_id_numbers,
     normalize_name,
-    now_kst,
     parse_floor,
     percent_floor,
     road_core,
     to_kst,
-    today_kst,
     unit_in_address,
     unit_key,
     unit_label,
@@ -532,6 +529,12 @@ def multi_household_lines(reg: RegistryExtract) -> list[str]:
     return [line for line in reg.building_use_lines if any(w in compact(line) for w in _MULTI_WORDS)]
 
 
+def senior_claims(ctx: Ctx) -> tuple[Claims, int]:
+    """R5 선순위: 유효 을구의 저당·전세권·임차권 금액 + 직접 입력한 선순위 보증금 (합계)."""
+    claims = prior_claims(ctx.eulgu, ("저당", "전세권", "임차권"))
+    return claims, claims.total + (ctx.manual.prior_deposits or 0)
+
+
 def rule_r5(ctx: Ctx) -> RuleResult:
     """시세 대비 보증금 비율."""
     if multi_household_lines(ctx.reg):
@@ -544,22 +547,22 @@ def rule_r5(ctx: Ctx) -> RuleResult:
         return _unknown("R5", "시세 정보가 없어요")
     if market.price <= 0:
         return _unknown("R5", "시세 값이 올바르지 않아요", [market.evidence])
-    claims = prior_claims(ctx.eulgu, ("저당", "전세권", "임차권"))
+    claims, prior = senior_claims(ctx)
     claim_evidence = [entry_evidence(e) for e in claims.entries]
     if claims.missing:
         return _unknown("R5", "선순위 권리 중 금액을 읽지 못한 항목이 있어요", claim_evidence)
     evidence = claim_evidence
-    prior = claims.total
     if ctx.manual.prior_deposits is not None:
-        prior += ctx.manual.prior_deposits
         text = f"알고 있는 선순위 보증금(직접 입력): {fmt_money(ctx.manual.prior_deposits)}"
         evidence = evidence + [Evidence(doc="manual", text=text)]
     evidence = evidence + [deposit.evidence, market.evidence]
     ratio = Fraction(prior + deposit.amount, market.price)
-    sentence = (
-        f"선순위 {fmt_money(prior)} + 내 보증금 {fmt_money(deposit.amount)} = "
-        f"시세({fmt_money(market.price)}, {market.label})의 {percent_floor(ratio)}%예요."
-    )
+    share = f"시세({fmt_money(market.price)}, {market.label})의 {percent_floor(ratio)}%예요."
+    money = fmt_money(deposit.amount)
+    if prior > 0:
+        sentence = f"선순위 {fmt_money(prior)} + 내 보증금 {money} = {share}"
+    else:  # 선순위가 없으면 "선순위 0원 +"를 쓰지 않는다
+        sentence = f"내 보증금 {money}{josa_iga(money)} {share}"
     if ratio < RATIO_WARN:
         return _green("R5", evidence, summary=sentence)
     return _result(
@@ -786,6 +789,64 @@ _R11_RED_TITLE = "계약서의 호수가 등기부와 달라요"
 _R11_RED_TAIL = "전입신고 주소가 등기와 다르면 대항력을 인정받지 못할 수 있어요."
 _R11_RED_ACTION = "계약서와 전입신고에 등기부 표기를 그대로 적으세요."
 
+# 집합건물 동·호 비교 결과 (대조표 결과 칸에도 그대로 쓴다)
+HO_MISSING = "호수 없음"
+HO_DIFFERS = "호수 다름"
+DONG_DIFFERS = "동 다름"
+
+
+@dataclass
+class UnitFacts:
+    """동·호의 화면용 원문 표기. 계약서 쪽은 칸이 비어 있으면 계약서 주소에서 읽은 값."""
+
+    reg_dong: Optional[str]
+    reg_ho: Optional[str]
+    c_dong: Optional[str]
+    c_ho: Optional[str]
+
+
+def unit_facts(ctx: Ctx) -> UnitFacts:
+    reg, c = ctx.reg, ctx.contract
+    c_dong = c_ho = None
+    if c is not None:
+        addr_dong, addr_ho = unit_in_address(c.address)
+        c_dong = unit_text(c.unit.dong, "동") or addr_dong
+        c_ho = unit_text(c.unit.ho, "호") or addr_ho
+    return UnitFacts(unit_text(reg.unit.dong, "동"), unit_text(reg.unit.ho, "호"), c_dong, c_ho)
+
+
+def unit_mismatch(units: UnitFacts) -> Optional[str]:
+    """집합건물 동·호 비교. 같으면 None. 동은 등기부에 동이 있을 때만 비교한다."""
+    c_ho = unit_key(units.c_ho, "호")
+    if c_ho is None:
+        return HO_MISSING
+    reg_ho = unit_key(units.reg_ho, "호")
+    if reg_ho is not None and c_ho != reg_ho:
+        return HO_DIFFERS
+    reg_dong = unit_key(units.reg_dong, "동")
+    if reg_dong is not None and unit_key(units.c_dong, "동") != reg_dong:
+        return DONG_DIFFERS
+    return None
+
+
+def registry_address_text(reg: RegistryExtract) -> Optional[str]:
+    """등기부 표기: 지번 주소(없으면 도로명 주소) + 건물 이름 + 동·호."""
+    base = (reg.address_jibun or "").strip() or (reg.address_road or "").strip()
+    parts = [base] if base else []
+    unit = unit_label(unit_text(reg.unit.dong, "동"), unit_text(reg.unit.ho, "호"))
+    for extra in ((reg.building_name or "").strip(), unit):
+        if extra and compact(extra) not in compact(base):
+            parts.append(extra)
+    return " ".join(parts) or None
+
+
+def contract_address_text(c: ContractExtract) -> Optional[str]:
+    """계약서 주소. 주소에 없는 동·호 칸 값은 뒤에 붙인다."""
+    address = (c.address or "").strip()
+    units = (unit_text(c.unit.dong, "동"), unit_text(c.unit.ho, "호"))
+    extra = [u for u in units if u and compact(u) not in compact(address)]
+    return " ".join(([address] if address else []) + extra) or None
+
 
 def rule_r11(ctx: Ctx) -> RuleResult:
     """주소·호수 불일치."""
@@ -796,10 +857,8 @@ def rule_r11(ctx: Ctx) -> RuleResult:
     if not address:
         return _unknown("R11", "계약서 주소가 없어요")
     reg = ctx.reg
-    # 화면에는 원문 표기("지하102호", "302-1호"), 비교에는 정리한 값("B102", "302-1")을 쓴다
-    reg_dong_text, reg_ho_text = unit_text(reg.unit.dong, "동"), unit_text(reg.unit.ho, "호")
-    reg_dong, reg_ho = unit_key(reg_dong_text, "동"), unit_key(reg_ho_text, "호")
-    reg_label = unit_label(reg_dong_text, reg_ho_text)
+    units = unit_facts(ctx)
+    reg_label = unit_label(units.reg_dong, units.reg_ho)
     reg_unit = " ".join(p for p in (reg.building_name, reg_label) if p)
     reg_text = " / ".join(p.strip() for p in (reg.address_jibun, reg.address_road, reg_unit) if p and p.strip())
     evidence = []
@@ -809,18 +868,12 @@ def rule_r11(ctx: Ctx) -> RuleResult:
 
     collective = reg.registry_type == "집합건물"
     if collective:
-        # contract.unit이 비어 있는 칸만 계약서 주소에서 읽는다
-        addr_dong, addr_ho = unit_in_address(address)
-        c_dong_text = unit_text(c.unit.dong, "동") or addr_dong
-        c_ho_text = unit_text(c.unit.ho, "호") or addr_ho
-        c_dong, c_ho = unit_key(c_dong_text, "동"), unit_key(c_ho_text, "호")
-        if c_ho is None:
+        mismatch = unit_mismatch(units)
+        if mismatch == HO_MISSING:
             head = f"등기부는 {reg_label}인데, 계약서에는 호수가 없어요." if reg_label else "계약서에 호수가 없어요."
             return _result("R11", "red", _R11_RED_TITLE, f"{head} {_R11_RED_TAIL}", _R11_RED_ACTION, evidence)
-        ho_differs = reg_ho is not None and c_ho != reg_ho
-        dong_differs = reg_dong is not None and c_dong != reg_dong  # 동은 등기부에 있을 때만 비교
-        if ho_differs or dong_differs:
-            c_label = unit_label(c_dong_text, c_ho_text)
+        if mismatch:
+            c_label = unit_label(units.c_dong, units.c_ho)
             summary = f"등기부는 {reg_label}, 계약서는 {c_label}{josa_ieyo(c_label)}. {_R11_RED_TAIL}"
             return _result("R11", "red", _R11_RED_TITLE, summary, _R11_RED_ACTION, evidence)
 
@@ -836,12 +889,18 @@ def rule_r11(ctx: Ctx) -> RuleResult:
             "계약서 주소를 등기부 주소와 한 글자씩 맞춰 보세요.",
             evidence,
         )
-    if collective and reg_ho is None:
+    if collective and unit_key(units.reg_ho, "호") is None:
         return _unknown("R11", "등기부에서 호수를 확인하지 못했어요", evidence)
     return _green("R11", evidence)
 
 
 _PROTECTIVE_WORDS = ("담보", "저당", "말소", "설정하지")
+
+
+def protective_terms(c: ContractExtract) -> list[str]:
+    """보증금을 지키는 특약 문장 (키워드는 띄어쓰기를 무시하고 찾는다)."""
+    terms = [t.strip() for t in c.special_terms if t and t.strip()]
+    return [t for t in terms if any(w in compact(t) for w in _PROTECTIVE_WORDS)]
 
 
 def rule_r12(ctx: Ctx) -> RuleResult:
@@ -850,7 +909,7 @@ def rule_r12(ctx: Ctx) -> RuleResult:
     if c is None:
         return _unknown("R12", "계약서가 없어 특약을 확인하지 못했어요")
     terms = [t.strip() for t in c.special_terms if t and t.strip()]
-    protective = [t for t in terms if any(w in compact(t) for w in _PROTECTIVE_WORDS)]
+    protective = protective_terms(c)
     if protective:
         return _green("R12", [Evidence(doc="contract", text=t) for t in protective])
     text = (c.sources.special_terms or "").strip() or "\n".join(terms) or "특약 없음"
@@ -920,11 +979,11 @@ def sort_key(r: RuleResult) -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------------------
-# 리포트
+# 요청 메시지·특약·요청서에 쓰는 값
 # ---------------------------------------------------------------------------
 
 
-def _message_address(ctx: Ctx) -> Optional[str]:
+def message_address(ctx: Ctx) -> Optional[str]:
     """요청 메시지의 {주소}: 계약서 주소 → 등기부 도로명주소 → 지번주소 (등기부면 동·호를 붙인다)."""
     c = ctx.contract
     if c is not None and c.address and c.address.strip():
@@ -936,7 +995,7 @@ def _message_address(ctx: Ctx) -> Optional[str]:
     return f"{base} {unit}" if unit else base
 
 
-def _mortgage_amount(ctx: Ctx) -> Optional[str]:
+def mortgage_amount(ctx: Ctx) -> Optional[str]:
     """특약용 근저당 채권최고액 합계. 근저당이 없으면 None, 금액을 모르면 자리 표시."""
     claims = prior_claims(ctx.eulgu, ("저당",))
     if not claims.entries:
@@ -944,42 +1003,3 @@ def _mortgage_amount(ctx: Ctx) -> Optional[str]:
     if claims.missing:
         return content.AMOUNT_PLACEHOLDER
     return fmt_money(claims.total)
-
-
-def build_report(req: CheckRequest) -> Report:
-    """CheckRequest를 받아 R1–R13 규칙을 모두 계산하고 Report를 돌려준다.
-
-    - AI나 외부 API를 부르지 않는다 (같은 입력이면 같은 결과).
-    - req.today가 없으면 현재 한국 날짜를 쓴다.
-    """
-    today = req.today or today_kst()
-    ctx = make_context(req, today)
-    results = sorted((run_rule(rid, fn, ctx) for rid, fn in RULES), key=sort_key)
-    counts = Counts(**{lvl: sum(1 for r in results if r.level == lvl) for lvl in LEVEL_ORDER})
-    levels = {r.id: r.level for r in results}
-
-    c = ctx.contract
-    lease_type = c.lease_type if c else None
-    mortgage_amount = _mortgage_amount(ctx)
-    items = content.request_items(
-        levels,
-        has_agent=bool(c and (c.agent_name or "").strip()),
-        has_mortgage=mortgage_amount is not None,
-    )
-    return Report(
-        mode=req.mode,
-        generated_at=now_kst(),
-        today=today,
-        overall=content.build_overall(levels),
-        counts=counts,
-        results=results,
-        request_message=content.build_request_message(_message_address(ctx), items),
-        special_terms=content.build_special_terms(levels, lease_type, mortgage_amount),
-        checklist=content.build_checklist(
-            contract_date=(c.contract_date if c else None) or ctx.manual.contract_date,
-            balance_date=c.balance_date if c else None,
-            move_in_date=c.move_in_date if c else None,
-            lease_type=lease_type,
-        ),
-        disclaimer=content.DISCLAIMER,
-    )

@@ -184,6 +184,36 @@ class ChecklistItem(Model):
     title: str
 
 
+class ComparisonRow(Model):
+    """계약서·등기부 대조표의 한 행. 등급은 rule_id 규칙의 등급과 같다."""
+
+    item: str  # "임대인" · "소재지·호수" · "보증금" · "계약일" · "특약"
+    rule_id: str  # "R1" · "R11" · "R5" · "R8" · "R12"
+    contract: Optional[str] = None  # 계약서(또는 직접 입력) 쪽 값, 화면 표시용
+    registry: Optional[str] = None  # 등기부·시세 쪽 값, 화면 표시용
+    level: Level
+    note: str = ""  # 짧은 결과 ("일치", "불일치", "90%", "80일 전 소유자 변경" …)
+
+
+class AmendmentFix(Model):
+    """계약서에서 고칠 곳 한 줄."""
+
+    item: str  # "임대인" · "소재지"
+    current: Optional[str] = None  # 계약서의 지금 값
+    proposed: str  # 고칠 값
+    reason: str
+
+
+class Amendment(Model):
+    """계약서 수정 요청서 (계약서가 없으면 계약 전 요청서)."""
+
+    title: str  # "계약서 수정 요청서" · "계약 전 요청서"
+    fixes: list[AmendmentFix] = Field(default_factory=list)
+    terms: list[str] = Field(default_factory=list)  # 넣어 주실 특약
+    documents: list[str] = Field(default_factory=list)  # 계약 전에 받을 서류
+    text: str  # 복사·인쇄용 전체 문안
+
+
 class Report(Model):
     mode: Mode
     generated_at: dt.datetime
@@ -191,6 +221,8 @@ class Report(Model):
     overall: Overall
     counts: Counts
     results: list[RuleResult]
+    comparison: list[ComparisonRow] = Field(default_factory=list)  # 계약서·등기부 대조표
+    amendment: Optional[Amendment] = None  # 계약서 수정 요청서
     request_message: Optional[str] = None
     special_terms: list[str] = Field(default_factory=list)
     checklist: list[ChecklistItem] = Field(default_factory=list)

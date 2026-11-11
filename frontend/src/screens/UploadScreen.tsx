@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { health } from '../api/client'
 import type { HealthResponse } from '../api/types'
+import { ConsentNotice } from '../components/ConsentNotice'
+import { ContractField } from '../components/ContractField'
 import { ToggleGroup } from '../components/Disclosure'
 import { FilePicker } from '../components/FilePicker'
 import { DateField, MoneyField, TextField } from '../components/fields'
 import { IROS_URL } from '../content/static'
-import { checkRegistryFile, prepareContractFile } from '../lib/files'
+import { checkRegistryFile } from '../lib/files'
 import { useScreenFocus } from '../lib/useScreenFocus'
 import { hasManualValues } from '../state/upload'
 import type { ManualDraft, UploadDraft } from '../state/upload'
@@ -19,19 +21,29 @@ export function UploadScreen({
   setDraft,
   onSubmit,
   onHome,
+  onPrivacy,
 }: {
   draft: UploadDraft
   setDraft: Dispatch<SetStateAction<UploadDraft>>
   onSubmit: () => void
   onHome: () => void
+  /** 개인정보 처리 안내 */
+  onPrivacy: () => void
 }) {
   const titleRef = useScreenFocus<HTMLHeadingElement>()
   const [registryError, setRegistryError] = useState<string | null>(null)
-  const [contractError, setContractError] = useState<string | null>(null)
   const [contractBusy, setContractBusy] = useState(false)
   const [server, setServer] = useState<ServerState>(null)
   const [manualOpenAtStart] = useState(() => hasManualValues(draft.manual))
-  const contractPick = useRef(0)
+  const registryPick = useRef(0)
+
+  // 화면을 떠나면 아직 확인 중인 등기부는 버린다
+  useEffect(() => {
+    const seq = registryPick
+    return () => {
+      seq.current += 1
+    }
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -42,29 +54,19 @@ export function UploadScreen({
   }, [])
 
   async function pickRegistry(file: File) {
+    const seq = ++registryPick.current
     setRegistryError(null)
     const error = await checkRegistryFile(file)
+    if (seq !== registryPick.current) return
     if (error) setRegistryError(error)
     else setDraft((d) => ({ ...d, registry: file }))
-  }
-
-  async function pickContract(file: File) {
-    const pick = ++contractPick.current
-    const isCurrent = () => pick === contractPick.current
-    setContractError(null)
-    setContractBusy(true)
-    const result = await prepareContractFile(file)
-    if (!isCurrent()) return
-    setContractBusy(false)
-    if ('error' in result) setContractError(result.error)
-    else setDraft((d) => ({ ...d, contract: result.file }))
   }
 
   function setManual(key: keyof ManualDraft) {
     return (value: string) => setDraft((d) => ({ ...d, manual: { ...d.manual, [key]: value } }))
   }
 
-  const canSubmit = draft.registry !== null && !contractBusy
+  const canSubmit = draft.registry !== null && !contractBusy && draft.consent
 
   return (
     <>
@@ -94,26 +96,19 @@ export function UploadScreen({
           describedBy="file-note"
           onPick={pickRegistry}
           onClear={() => {
+            registryPick.current += 1
             setRegistryError(null)
             setDraft((d) => ({ ...d, registry: null }))
           }}
         />
-        <FilePicker
+        <ContractField
           label="계약서"
           required={false}
-          accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
-          file={draft.contract}
-          busy={contractBusy}
-          error={contractError}
+          value={draft.contract}
           describedBy="file-note"
           hint="계약서를 함께 올리면 임대인·호수·특약을 등기부와 대조해요."
-          onPick={pickContract}
-          onClear={() => {
-            contractPick.current += 1
-            setContractError(null)
-            setContractBusy(false)
-            setDraft((d) => ({ ...d, contract: null }))
-          }}
+          onChange={(contract) => setDraft((d) => ({ ...d, contract }))}
+          onBusyChange={setContractBusy}
         />
       </div>
       <p id="file-note" className="muted mt-1">
@@ -169,14 +164,18 @@ export function UploadScreen({
         </ol>
       </section>
 
-      <p className="mt-4">문서는 AI 분석을 위해 외부로 전송되고, 저장되지 않아요.</p>
+      <ConsentNotice
+        checked={draft.consent}
+        onChange={(consent) => setDraft((d) => ({ ...d, consent }))}
+        onPrivacy={onPrivacy}
+      />
 
       <div className="actions mt-2">
         <button
           type="button"
           className="btn-primary"
           disabled={!canSubmit}
-          aria-describedby={draft.registry ? undefined : 'submit-reason'}
+          aria-describedby={canSubmit ? undefined : 'submit-reason'}
           onClick={onSubmit}
         >
           분석하기
@@ -185,11 +184,18 @@ export function UploadScreen({
           처음으로
         </button>
       </div>
-      {!draft.registry && (
+      {!canSubmit && (
         <p id="submit-reason" className="visually-hidden">
-          등기부등본을 고르면 분석할 수 있어요.
+          {submitReason(draft.registry !== null, draft.consent)}
         </p>
       )}
     </>
   )
+}
+
+function submitReason(hasRegistry: boolean, consent: boolean): string {
+  if (!hasRegistry && !consent) return '등기부등본을 고르고 위 내용을 확인하면 분석할 수 있어요.'
+  if (!hasRegistry) return '등기부등본을 고르면 분석할 수 있어요.'
+  if (!consent) return '위 내용을 확인하면 분석할 수 있어요.'
+  return '계약서 사진을 준비하고 있어요.'
 }

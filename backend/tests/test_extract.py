@@ -17,12 +17,13 @@ from types import SimpleNamespace
 
 import anthropic
 import httpx2
+import pypdf
 import pytest
 from pypdf import PdfReader, PdfWriter
 from pypdf.errors import DependencyError
 from pypdf.generic import DecodedStreamObject, NameObject
 
-from app import extract, prompts, uploads
+from app import extract, pdf_sandbox, prompts, uploads
 from app.errors import ERROR_MESSAGES, ApiError
 from app.schemas import (
     ContractExtract,
@@ -1084,7 +1085,9 @@ def test_aes_pdf_without_cryptography_is_unsupported(monkeypatch):
         def decrypt(self, password):
             raise DependencyError("cryptography>=3.1 is required for AES algorithm")
 
-    monkeypatch.setattr(uploads, "PdfReader", NoCryptoReader)
+    # 가짜 PdfReader를 쓰려면 검사를 같은 프로세스에서 돌린다
+    monkeypatch.setattr(pypdf, "PdfReader", NoCryptoReader)
+    monkeypatch.setattr(uploads, "inspect_pdf", pdf_sandbox.inspect)
     reason = unsupported(uploads.validate_registry, b"%PDF-1.7 aes")
     assert reason == "registry:encrypted_pdf_needs_cryptography"
 

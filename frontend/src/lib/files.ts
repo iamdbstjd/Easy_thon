@@ -2,7 +2,7 @@
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024
 const LONG_EDGE_PX = 1600
-const JPEG_QUALITY = 0.9
+export const JPEG_QUALITY = 0.9
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
@@ -24,9 +24,9 @@ export async function hasPdfHeader(file: File): Promise<boolean> {
   }
 }
 
-type Decoded = { source: CanvasImageSource; width: number; height: number; release: () => void }
+export type Decoded = { source: CanvasImageSource; width: number; height: number; release: () => void }
 
-async function decodeImage(file: File): Promise<Decoded> {
+export async function decodeImage(file: File): Promise<Decoded> {
   if (typeof createImageBitmap === 'function') {
     try {
       // 휴대폰 사진의 회전 정보(EXIF)를 반영해서 읽는다.

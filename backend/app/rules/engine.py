@@ -9,7 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import Callable, Optional
 
@@ -27,6 +27,7 @@ from app.schemas import (
 from . import content
 from .common import (
     address_has_core,
+    address_too_long,
     compact,
     display_name,
     floor_from_ho,
@@ -81,6 +82,7 @@ class Ctx:
     base_date: dt.date  # 기준일
     gapgu: list[Entry]  # 유효 항목만
     eulgu: list[Entry]
+    ownership_cache: list = field(default_factory=list, repr=False)  # 현재 소유권을 한 번만 계산해 둔다
 
 
 def make_context(req: CheckRequest, today: dt.date) -> Ctx:
@@ -104,11 +106,15 @@ def make_context(req: CheckRequest, today: dt.date) -> Ctx:
 
 # 한 순위번호의 등기목적이 여러 개면 쉼표 등으로 이어 온다 ("소유권이전, 신탁").
 # "소유권이전 3번신탁등기말소"처럼 붙어 와도 "N번" 앞에서 나눈다.
-_SEGMENT_SPLIT = re.compile(r"[,，/·ㆍ]|및|(?=\d+(?:-\d+)?번)")
+# "N번"은 숫자 덩어리의 첫 글자에서만 찾는다 ("123번"을 "1|2|3번"으로 쪼개지 않고, 긴 숫자열에서 느려지지 않게).
+_SEGMENT_SPLIT = re.compile(r"[,，/·ㆍ]|및|(?<![\d-])(?=\d+(?:-\d+)?번)")
+# 등기목적으로 읽는 최대 길이 (실제 등기목적은 수십 자 안이다)
+PURPOSE_MAX_CHARS = 300
 
 
 def purpose_segments(e: Entry) -> list[str]:
-    return [s for s in (compact(p) for p in _SEGMENT_SPLIT.split(e.purpose or "")) if s]
+    purpose = (e.purpose or "")[:PURPOSE_MAX_CHARS]
+    return [s for s in (compact(p) for p in _SEGMENT_SPLIT.split(purpose)) if s]
 
 
 def _is_removal(segment: str) -> bool:
@@ -152,20 +158,10 @@ def holder_names(holders: list[str]) -> list[str]:
     return [display_name(h) for h in holders if normalize_name(h)]
 
 
-def _merge_names(base: list[str], extra: list[str]) -> list[str]:
-    merged = list(base)
-    keys = {normalize_name(n) for n in base}
-    for name in extra:
-        if normalize_name(name) not in keys:
-            merged.append(name)
-            keys.add(normalize_name(name))
-    return merged
-
-
 # --- 현재 소유권 ---
 
 _OWNERSHIP_WORDS = ("소유권보존", "소유권이전", "소유권일부이전")
-_SHARE_SELLER = re.compile(r"\d+(?:-\d+)?번(.+?)지분전부이전")
+_SHARE_SELLER = re.compile(r"(?<!\d)\d+(?:-\d+)?번(.+?)지분전부이전")
 
 
 def _is_ownership_segment(seg: str) -> bool:
@@ -201,6 +197,8 @@ def current_ownership(gapgu: list[Entry]) -> Optional[Ownership]:
         뒤에 권리자가 있는 전부 이전이 오기 전까지는 모르는 상태로 둔다.
     """
     owners: list[str] = []
+    keys: list[str] = []  # owners와 같은 순서의 이름 비교용 값 (항목마다 다시 정리하지 않게)
+    seen: set[str] = set()
     entries: list[Entry] = []
     last: Optional[Entry] = None
     known = True
@@ -214,18 +212,26 @@ def current_ownership(gapgu: list[Entry]) -> Optional[Ownership]:
             same_rank = last is not None and rank is not None and rank == base_rank(last.rank)
             if all(s == "신탁" for s in segs) or same_rank:
                 continue
-            owners, entries, last, known = [], [e], e, False
+            owners, keys, seen, entries, last, known = [], [], set(), [e], e, False
             continue
         if any(_is_partial_segment(s) for s in segs):
             for seg in segs:
-                m = _SHARE_SELLER.search(seg)
+                m = _SHARE_SELLER.search(seg) if "지분전부이전" in seg else None
                 if m:  # 지분을 모두 넘긴 공유자는 뺀다
                     seller = normalize_name(m.group(1))
-                    owners = [o for o in owners if normalize_name(o) != seller]
-            owners = _merge_names(owners, names)
+                    kept = [(o, k) for o, k in zip(owners, keys) if k != seller]
+                    owners, keys = [o for o, _ in kept], [k for _, k in kept]
+                    seen = set(keys)
+            for name in names:  # 이미 있는 소유자는 다시 넣지 않는다
+                key = normalize_name(name)
+                if key not in seen:
+                    owners.append(name)
+                    keys.append(key)
+                    seen.add(key)
             entries.append(e)
         else:
-            owners, entries, known = names, [e], True
+            owners, keys, entries, known = list(names), [normalize_name(n) for n in names], [e], True
+            seen = set(keys)
         last = e
     if last is None:
         return None
@@ -233,6 +239,13 @@ def current_ownership(gapgu: list[Entry]) -> Optional[Ownership]:
         owners = []
     partial = any("일부이전" in s for s in active_segments(last))
     return Ownership(entry=last, owners=owners, shared=len(owners) >= 2 or partial, entries=entries)
+
+
+def ownership(ctx: Ctx) -> Optional[Ownership]:
+    """ctx의 현재 소유권. 여러 규칙·대조표가 쓰므로 한 번만 계산한다."""
+    if not ctx.ownership_cache:
+        ctx.ownership_cache.append(current_ownership(ctx.gapgu))
+    return ctx.ownership_cache[0]
 
 
 # --- 선순위 금액 (R5·R6) ---
@@ -245,6 +258,11 @@ class Claims:
     entries: list[Entry]
 
 
+def known_amount(amount: Optional[int]) -> Optional[int]:
+    """금액이 0 이하면 읽지 못한 값으로 본다 (채권최고액·보증금·시세에 0원이나 음수는 없다)."""
+    return amount if amount is not None and amount > 0 else None
+
+
 def base_rank(rank: str) -> Optional[str]:
     m = re.match(r"\s*(\d+)", rank or "")
     return m.group(1) if m else None
@@ -254,7 +272,7 @@ def prior_claims(eulgu: list[Entry], words: tuple[str, ...]) -> Claims:
     """을구에서 words가 들어간 권리의 금액 합계.
 
     부기등기("1-1 1번근저당권변경")는 주등기와 같은 권리이므로 순위번호로 묶고,
-    묶음마다 마지막으로 적힌 금액(변경된 채권최고액)만 더한다.
+    묶음마다 마지막으로 적힌 금액(변경된 채권최고액)만 더한다. 0 이하 금액은 읽지 못한 것으로 본다.
     """
     groups: dict[str, list[Entry]] = {}
     for i, e in enumerate(eulgu):
@@ -264,7 +282,7 @@ def prior_claims(eulgu: list[Entry], words: tuple[str, ...]) -> Claims:
     total, missing, entries = 0, False, []
     for members in groups.values():
         entries.extend(members)
-        amounts = [m.amount for m in members if m.amount is not None and not has_word(m, ("질권",))]
+        amounts = [m.amount for m in members if known_amount(m.amount) and not has_word(m, ("질권",))]
         if amounts:
             total += amounts[-1]
         else:
@@ -305,14 +323,21 @@ class Deposit:
 
 
 def deposit_of(ctx: Ctx) -> Optional[Deposit]:
+    """보증금: 계약서 → 직접 입력 순서. 0 이하 값은 없는 것으로 본다 (비율 계산에 쓰지 않는다)."""
     c = ctx.contract
-    if c is not None and c.deposit is not None:
+    if c is not None and known_amount(c.deposit):
         text = (c.sources.deposit or "").strip() or f"계약서 보증금: {fmt_money(c.deposit)}"
         return Deposit(c.deposit, Evidence(doc="contract", text=text))
-    if ctx.manual.deposit is not None:
+    if known_amount(ctx.manual.deposit):
         amount = ctx.manual.deposit
         return Deposit(amount, Evidence(doc="manual", text=f"보증금(직접 입력): {fmt_money(amount)}"))
     return None
+
+
+def deposit_given(ctx: Ctx) -> bool:
+    """보증금 값이 어딘가에 적혀 있는지 (0 이하라 쓰지 못한 값 포함)."""
+    c = ctx.contract
+    return (c is not None and c.deposit is not None) or ctx.manual.deposit is not None
 
 
 METHOD_LABEL = {
@@ -397,7 +422,7 @@ def rule_r1(ctx: Ctx) -> RuleResult:
     landlord = landlord_of(ctx)
     if landlord is None:
         return _unknown("R1", "임대인 이름을 확인하지 못했어요")
-    own = current_ownership(ctx.gapgu)
+    own = ownership(ctx)
     if own is None:
         return _unknown("R1", "등기부에서 현재 소유자를 찾지 못했어요")
     if not own.owners:
@@ -442,11 +467,66 @@ def has_trust(e: Entry) -> bool:
     return "신탁" in cause and not any(w in cause for w in _TRUST_ENDED)
 
 
+_RANK_REF = re.compile(r"(\d+)(?:-\d+)?번")
+
+
+def _removed_trust_ranks(gapgu: list[Entry]) -> set[str]:
+    """"3번신탁등기말소"처럼 말소 기록에 적힌 신탁의 순위번호."""
+    ranks = set()
+    for e in gapgu:
+        for seg in purpose_segments(e):
+            m = _RANK_REF.match(seg) if _is_removal(seg) and "신탁" in seg else None
+            if m:
+                ranks.add(m.group(1))
+    return ranks
+
+
+def trust_state(gapgu: list[Entry], own: Optional[Ownership] = None) -> tuple[list[Entry], list[Entry]]:
+    """(지금도 살아 있는 신탁 항목, 끝났는지 알 수 없는 신탁 항목).
+
+    - "N번신탁등기말소"로 말소된 N번 신탁은 뺀다.
+    - 신탁 뒤에 소유권이 다시 넘어갔으면(신탁재산의귀속 등) 끝난 신탁으로 본다.
+      단 그 이전 행에 권리자도 등기원인도 없으면 끝났는지 알 수 없다.
+    - 지금 소유자를 정한 항목이거나 그와 순위번호가 같은 신탁 행은 살아 있다.
+    - 지금 소유권 항목보다 뒤에 적힌 신탁 행은 끝났다고 볼 근거가 없으므로 살아 있다.
+    """
+    hits = [(i, e) for i, e in enumerate(gapgu) if has_trust(e)]
+    if not hits:
+        return [], []
+    removed = _removed_trust_ranks(gapgu)
+    own = own if own is not None else current_ownership(gapgu)
+    own_index = next((i for i, e in enumerate(gapgu) if own is not None and e is own.entry), None)
+    own_rank = base_rank(own.entry.rank) if own is not None else None
+    own_ids = {id(x) for x in own.entries} if own is not None else set()
+    blind = own is not None and not own.owners and not _cause_text(own.entry.cause)  # 누구에게 왜 넘어갔는지 모른다
+    live, unclear = [], []
+    for i, e in hits:
+        rank = base_rank(e.rank)
+        if rank is not None and rank in removed:
+            continue
+        current = own is not None and (id(e) in own_ids or (rank is not None and rank == own_rank))
+        if not current and own_index is not None and i < own_index:
+            if blind:
+                unclear.append(e)
+            continue
+        live.append(e)
+    return live, unclear
+
+
+def live_trusts(gapgu: list[Entry], own: Optional[Ownership] = None) -> list[Entry]:
+    """지금도 살아 있는 신탁 항목."""
+    return trust_state(gapgu, own)[0]
+
+
 def rule_r2(ctx: Ctx) -> RuleResult:
-    """신탁등기."""
+    """신탁등기. 신탁이 끝난 뒤(말소·귀속)에는 지금 소유권이 신탁이 아니므로 🟢."""
     if not ctx.gapgu:
         return _unknown("R2", NO_GAPGU)
-    hits = [e for e in ctx.gapgu if has_trust(e)]
+    own = ownership(ctx)
+    hits, unclear = trust_state(ctx.gapgu, own)
+    if not hits and unclear:
+        evidence = [entry_evidence(e) for e in unclear] + [entry_evidence(own.entry)]
+        return _unknown("R2", "신탁 뒤 소유권 이전 항목의 권리자와 원인을 읽지 못해 신탁이 끝났는지 확인하지 못했어요", evidence)
     if not hits:
         return _green("R2")
     trustees = next((names for e in reversed(hits) if (names := holder_names(e.holders))), [])
@@ -507,7 +587,7 @@ def rule_r4(ctx: Ctx) -> RuleResult:
     parts = []
     for e in leases:
         who = ", ".join(holder_names(e.holders)) or "다른 임차인"
-        amount = f"({fmt_money(e.amount)})" if e.amount is not None else ""
+        amount = f"({fmt_money(e.amount)})" if known_amount(e.amount) else ""
         parts.append(f"{who}의 임차권{amount}")
     return _result(
         "R4",
@@ -532,7 +612,7 @@ def multi_household_lines(reg: RegistryExtract) -> list[str]:
 def senior_claims(ctx: Ctx) -> tuple[Claims, int]:
     """R5 선순위: 유효 을구의 저당·전세권·임차권 금액 + 직접 입력한 선순위 보증금 (합계)."""
     claims = prior_claims(ctx.eulgu, ("저당", "전세권", "임차권"))
-    return claims, claims.total + (ctx.manual.prior_deposits or 0)
+    return claims, claims.total + max(ctx.manual.prior_deposits or 0, 0)
 
 
 def rule_r5(ctx: Ctx) -> RuleResult:
@@ -541,7 +621,11 @@ def rule_r5(ctx: Ctx) -> RuleResult:
         return _unknown("R5", "다가구는 시세를 추정하기 어려워요")
     deposit = deposit_of(ctx)
     if deposit is None:
+        if deposit_given(ctx):
+            return _unknown("R5", "보증금 값이 올바르지 않아요")
         return _unknown("R5", "보증금을 확인하지 못했어요")
+    if ctx.manual.prior_deposits is not None and ctx.manual.prior_deposits < 0:
+        return _unknown("R5", "직접 입력한 선순위 보증금 값이 올바르지 않아요")
     market = market_of(ctx)
     if market is None:
         return _unknown("R5", "시세 정보가 없어요")
@@ -637,7 +721,7 @@ def rule_r8(ctx: Ctx) -> RuleResult:
     """최근 소유권 변동."""
     if not ctx.gapgu:
         return _unknown("R8", NO_GAPGU)
-    own = current_ownership(ctx.gapgu)
+    own = ownership(ctx)
     if own is None:
         return _unknown("R8", "등기부에서 현재 소유권 항목을 찾지 못했어요")
     e = own.entry
@@ -766,7 +850,9 @@ def rule_r10(ctx: Ctx) -> RuleResult:
     lines = [line.strip() for line in reg.building_use_lines if line and line.strip()]
     if not lines:
         return _unknown("R10", "건물 용도를 확인하지 못했어요")
-    if reg.registry_type != "집합건물":  # 건물 등기부(다가구 등): 모든 줄을 본다
+    # 건물 등기부(다가구 등): 모든 줄을 본다. 종류를 못 읽었으면 집합건물처럼 내 층을 찾는다
+    # (섞인 건물을 "주거용"으로 보지 않게)
+    if reg.registry_type not in ("집합건물", None):
         return _r10_from_lines(lines, mixed_is_unknown=False)
 
     floor = parse_floor(reg.unit.floor)
@@ -848,6 +934,13 @@ def contract_address_text(c: ContractExtract) -> Optional[str]:
     return " ".join(([address] if address else []) + extra) or None
 
 
+def is_collective(reg: RegistryExtract) -> bool:
+    """집합건물로 볼지. 등기부 종류를 못 읽었어도 등기부에 동·호가 있으면 집합건물로 본다."""
+    if reg.registry_type is not None:
+        return reg.registry_type == "집합건물"
+    return unit_key(reg.unit.ho, "호") is not None or unit_key(reg.unit.dong, "동") is not None
+
+
 def rule_r11(ctx: Ctx) -> RuleResult:
     """주소·호수 불일치."""
     c = ctx.contract
@@ -857,6 +950,8 @@ def rule_r11(ctx: Ctx) -> RuleResult:
     if not address:
         return _unknown("R11", "계약서 주소가 없어요")
     reg = ctx.reg
+    if any(address_too_long(a) for a in (address, reg.address_jibun, reg.address_road)):
+        return _unknown("R11", "주소가 너무 길어 주소로 읽지 못했어요")
     units = unit_facts(ctx)
     reg_label = unit_label(units.reg_dong, units.reg_ho)
     reg_unit = " ".join(p for p in (reg.building_name, reg_label) if p)
@@ -866,7 +961,7 @@ def rule_r11(ctx: Ctx) -> RuleResult:
         evidence.append(Evidence(doc="registry", text=reg_text))
     evidence.append(Evidence(doc="contract", text=(c.sources.address or "").strip() or address))
 
-    collective = reg.registry_type == "집합건물"
+    collective = is_collective(reg)
     if collective:
         mismatch = unit_mismatch(units)
         if mismatch == HO_MISSING:
@@ -891,16 +986,68 @@ def rule_r11(ctx: Ctx) -> RuleResult:
         )
     if collective and unit_key(units.reg_ho, "호") is None:
         return _unknown("R11", "등기부에서 호수를 확인하지 못했어요", evidence)
+    if reg.registry_type is None and not collective:  # 집합건물인지 몰라 호수를 비교하지 못했다
+        return _unknown("R11", "등기부 종류(건물·집합건물)와 호수를 확인하지 못해 동·호수를 비교하지 못했어요", evidence)
     return _green("R11", evidence)
 
 
-_PROTECTIVE_WORDS = ("담보", "저당", "말소", "설정하지")
+# 특약 문장 종류 (띄어쓰기 무시). 검사(R12)·계약 후 재확인·수정 전후 비교가 모두 이 정의를 쓴다.
+# 특약이 누구의 의무인지: 맨 앞의 "갑은/을은", 아니면 "임대인은/임차인은"(주제), 아니면 "임대인이/임차인이"(주어)
+_LEAD_PARTY = re.compile(r"^(?:\(?\d{1,3}[.)]|[①-⑳])?(갑|을)(?:\([^)]{0,30}\))?(?:은|는|이|가)")
+_TOPIC = re.compile(r"(임대인|임차인)(?:\([^)]{0,30}\))?(?:측)?(?:은|는)")
+_SUBJECT = re.compile(r"(임대인|임차인)(?:\([^)]{0,30}\))?(?:측)?(?:이|가|도)")
+# 담보 설정을 분명히 막는 표현
+_PROHIBITION_WORDS = ("설정하지", "설정을하지", "설정금지", "설정을금지", "설정할수없", "설정해서는", "추가대출")
+# "담보"·"저당"과 같은 구절 안의 부정·금지 ("담보로 제공하지 않는다", "담보 제공 금지", "담보 설정 등 … 하지 않으며")
+_SECURITY_DENIED = re.compile(r"(?:담보|저당)[^.,;:!?]{0,25}?(?:않|아니|금지|못|수없|불가)")
+# 임차인의 전세대출을 돕는 문장의 낱말
+_TENANT_LOAN_WORDS = ("전세자금", "전세대출", "반환채권", "질권", "협조")
+
+
+def clause_party(term: str) -> Optional[str]:
+    """특약이 누구의 의무인지: "landlord" · "tenant" · None(주어가 없음)."""
+    t = compact(term)
+    m = _LEAD_PARTY.match(t)
+    if m:
+        return "landlord" if m.group(1) == "갑" else "tenant"
+    m = _TOPIC.search(t) or _SUBJECT.search(t)
+    if m:
+        return "landlord" if m.group(1) == "임대인" else "tenant"
+    if "임대인의동의" in t or "임대인동의" in t:  # 임대인 동의를 받아야 하는 쪽은 임차인이다
+        return "tenant"
+    return None
+
+
+def is_prohibition_clause(term: str) -> bool:
+    """담보(근저당) 설정 금지 특약인지: 임대인이 담보 설정·추가 대출을 하지 않겠다는 문장.
+
+    임차인의 의무(임차권 질권 설정 금지 등), 근저당 말소 약속, 임차인 전세대출 협조만 있는 문장은 아니다.
+    """
+    party = clause_party(term)
+    if party == "tenant":
+        return False
+    t = compact(term)
+    if any(w in t for w in _PROHIBITION_WORDS):
+        return True
+    if "말소" in t:
+        return False
+    tenant_loan = any(w in t for w in _TENANT_LOAN_WORDS)
+    if party is None and tenant_loan:
+        return False
+    if "대출을받지" in t and not tenant_loan:
+        return True
+    return _SECURITY_DENIED.search(t) is not None
+
+
+def is_removal_clause(term: str) -> bool:
+    """근저당 말소 특약인지 ("말소"가 든 문장. 임차인의 의무는 아니다)."""
+    return "말소" in compact(term) and clause_party(term) != "tenant"
 
 
 def protective_terms(c: ContractExtract) -> list[str]:
-    """보증금을 지키는 특약 문장 (키워드는 띄어쓰기를 무시하고 찾는다)."""
+    """보증금을 지키는 특약 문장: 담보 설정 금지나 말소 약속."""
     terms = [t.strip() for t in c.special_terms if t and t.strip()]
-    return [t for t in terms if any(w in compact(t) for w in _PROTECTIVE_WORDS)]
+    return [t for t in terms if is_prohibition_clause(t) or is_removal_clause(t)]
 
 
 def rule_r12(ctx: Ctx) -> RuleResult:

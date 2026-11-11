@@ -41,11 +41,14 @@ async function toApiError(res: Response): Promise<ApiError> {
   } catch {
     // 본문이 JSON이 아니다 (프록시 오류 등)
   }
-  const detail = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error
+  const detail = (body as { error?: { code?: unknown; message?: unknown; document?: unknown } } | null)?.error
   if (detail && typeof detail.message === 'string' && detail.message.trim() !== '') {
     const code = typeof detail.code === 'string' ? detail.code : null
-    return new ApiError(detail.message, code, res.status)
+    const document = detail.document === 'registry' || detail.document === 'contract' ? detail.document : null
+    return new ApiError(detail.message, code, res.status, document)
   }
+  // 서류를 읽는 요청이 몰렸다: 같은 파일로 다시 시도하면 된다
+  if (detail?.code === 'BUSY') return new ApiError(ERROR_MESSAGES.busy, 'BUSY', res.status)
   if (res.status === 422) return new ApiError(ERROR_MESSAGES.invalid, 'INVALID', res.status)
   // Vite 프록시는 백엔드에 연결하지 못하면 502를 돌려준다.
   if (res.status === 502 || res.status === 503 || res.status === 504) {
@@ -114,7 +117,12 @@ export async function extractContract(contract: File, signal?: AbortSignal): Pro
     data = await sendJson('/api/extract/contract', { method: 'POST', body: form, signal })
   }
   const result = normContract(data)
-  if (!result) throw new ApiError('계약서를 읽지 못했어요. 계약서 사진이나 PDF를 다시 올려 주세요.', 'NOT_CONTRACT')
+  if (!result) throw new ApiError(
+      '계약서를 읽지 못했어요. 계약서 사진이나 PDF를 다시 올려 주세요.',
+      'NOT_CONTRACT',
+      null,
+      'contract',
+    )
   return result
 }
 

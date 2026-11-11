@@ -5,7 +5,7 @@ import { Excerpt } from '../components/Excerpt'
 import { COUNT_LABEL } from '../content/labels'
 import { formatDate } from '../lib/format'
 import { keepTogether } from '../lib/keepTogether'
-import { maskIds } from '../lib/mask'
+import { maskPersonal } from '../lib/mask'
 import { useScreenFocus } from '../lib/useScreenFocus'
 
 /** 반영은 해당 없음 색(초록), 미반영은 위험 색(빨강), 직접 확인은 확인 못 함 색(회색) */
@@ -38,6 +38,8 @@ export function CompareReportScreen({
     ...report.rule_deltas.filter((d) => d.after === 'red'),
     ...report.rule_deltas.filter((d) => d.after === 'yellow'),
   ]
+  // 수정 후 판단하지 못하게 된 규칙. 개선으로 세지 않고 따로 쓴다
+  const turnedUnknown = report.rule_deltas.filter((d) => d.change === '확인 못 함')
   // 2절: 해당 없음으로 그대로인 것만 접는다. 남은 위험·확인 못 함·바뀐 것은 펼쳐 둔다
   const foldedDelta = (d: RuleDelta) => d.change === '그대로' && d.after === 'green'
   const shown = report.rule_deltas.filter((d) => !foldedDelta(d))
@@ -59,7 +61,7 @@ export function CompareReportScreen({
           {report.address && (
             <div className="row">
               <dt>대상</dt>
-              <dd>{keepTogether(maskIds(report.address))}</dd>
+              <dd>{keepTogether(maskPersonal(report.address))}</dd>
             </div>
           )}
           <div className="row">
@@ -90,6 +92,21 @@ export function CompareReportScreen({
               )}
             </dd>
           </div>
+          {turnedUnknown.length > 0 && (
+            <div className="row">
+              <dt>확인 못 함</dt>
+              <dd>
+                <p className="sep-list remaining-list">
+                  {turnedUnknown.map((d) => (
+                    <span key={d.id} className="grade grade-unknown">
+                      {d.name}
+                    </span>
+                  ))}
+                </p>
+                <p className="muted">수정된 계약서로는 판단하지 못했어요. 직접 확인하세요.</p>
+              </dd>
+            </div>
+          )}
           <div className="row">
             <dt>종합 판정</dt>
             <dd className="verdict-detail cmp-verdict">
@@ -204,7 +221,7 @@ export function CompareReportScreen({
 }
 
 function value(v: string | null): ReactNode {
-  return v ? keepTogether(maskIds(v)) : '—'
+  return v ? keepTogether(maskPersonal(v)) : '—'
 }
 
 /** 상황 한 줄은 마침표로 끝나는 문장으로 쓴다 (S5 위험 신호와 같게) */
@@ -215,7 +232,7 @@ function withPeriod(text: string): string {
 
 /** 짧은 이름이 없으면 문안을 그대로 쓴다 */
 function labelOf(f: RequestFulfillment): string {
-  return maskIds(f.label || f.item)
+  return maskPersonal(f.label || f.item)
 }
 
 /**
@@ -258,7 +275,7 @@ function FulfillmentGroups({ items }: { items: RequestFulfillment[] }) {
               <span key={i}>{labelOf(f)}</span>
             ))}
           </p>
-          {docNote && <p className="muted">{maskIds(docNote)}</p>}
+          {docNote && <p className="muted">{maskPersonal(docNote)}</p>}
         </div>
       )}
     </>
@@ -278,17 +295,18 @@ function FulfilList({
         <li key={i}>
           <span className="fulfil-label">{labelOf(f)}</span>
           <span className={`fulfil-status grade ${STATUS_CLASS[f.status]}`}>{f.status}</span>
-          {f.note && showNote(f) && <span className="fulfil-note muted">{maskIds(f.note)}</span>}
+          {f.note && showNote(f) && <span className="fulfil-note muted">{maskPersonal(f.note)}</span>}
         </li>
       ))}
     </ul>
   )
 }
 
-/** 변화 칸: 개선·악화, 그대로인데 아직 위험·주의면 "위험 남음 / 주의 남음" */
+/** 변화 칸: 개선·악화·확인 못 함, 그대로인데 아직 위험·주의면 "위험 남음 / 주의 남음" */
 function changeText(d: RuleDelta): { text: string; className: string } {
   if (d.change === '개선') return { text: '개선', className: 'grade grade-green' }
   if (d.change === '악화') return { text: '악화', className: 'grade grade-red' }
+  if (d.change === '확인 못 함') return { text: '확인 못 함', className: 'grade grade-unknown' }
   if (d.after === 'red') return { text: '위험 남음', className: 'grade grade-red' }
   if (d.after === 'yellow') return { text: '주의 남음', className: 'grade grade-yellow' }
   return { text: '그대로', className: 'muted' }
@@ -310,7 +328,7 @@ function DeltaTable({ deltas }: { deltas: RuleDelta[] }) {
       <tbody>
         {deltas.flatMap((d) => {
           const change = changeText(d)
-          const situation = stillFlagged(d) && d.after_title ? withPeriod(maskIds(d.after_title)) : ''
+          const situation = stillFlagged(d) && d.after_title ? withPeriod(maskPersonal(d.after_title)) : ''
           const rows = [
             <tr key={d.id} className={`cmp-row${situation ? ' has-note' : ''}`}>
               <th scope="row" className="c-item">

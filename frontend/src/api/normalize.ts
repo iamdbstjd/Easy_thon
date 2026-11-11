@@ -27,6 +27,7 @@ import type {
   MarketPrice,
   Report,
   RegistryExtract,
+  RuleChange,
   RuleResult,
 } from './types'
 
@@ -399,12 +400,16 @@ export function normCompareReport(raw: unknown): CompareReport {
     }),
     rule_deltas: list(v.rule_deltas).map((d) => {
       const x = obj(d)
+      const before = oneOf<Level>(x.before, LEVELS) ?? 'unknown'
+      const after = oneOf<Level>(x.after, LEVELS) ?? 'unknown'
+      const change = oneOf<RuleChange>(x.change, ['개선', '악화', '그대로', '확인 못 함']) ?? '그대로'
       return {
         id: str(x.id) ?? '',
         name: str(x.name) ?? '',
-        before: oneOf<Level>(x.before, LEVELS) ?? 'unknown',
-        after: oneOf<Level>(x.after, LEVELS) ?? 'unknown',
-        change: oneOf(x.change, ['개선', '악화', '그대로'] as const) ?? '그대로',
+        before,
+        after,
+        // 판단하지 못하게 된 것은 개선·악화로 세지 않는다 (예전 서버는 위험 → 확인 못 함을 개선으로 보냈다)
+        change: after === 'unknown' && before !== 'unknown' ? '확인 못 함' : change,
         after_title: str(x.after_title) ?? '',
       }
     }),

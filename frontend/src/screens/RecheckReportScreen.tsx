@@ -6,7 +6,7 @@ import { ResultText } from '../components/ResultText'
 import { formatDate, formatWon } from '../lib/format'
 import { keepTogether } from '../lib/keepTogether'
 import { holderList } from '../lib/holders'
-import { maskIds } from '../lib/mask'
+import { maskPersonal } from '../lib/mask'
 import { useScreenFocus } from '../lib/useScreenFocus'
 
 const PHASE_LABEL: Record<RecheckPhase, string> = {
@@ -27,12 +27,16 @@ export function RecheckReportScreen({
   onHome,
 }: {
   report: RecheckReport
-  /** [다른 등기부로 다시 확인]: 계약서는 그대로 두고 S6으로 */
+  /** [다른 등기부로 다시 확인]: 계약서는 그대로 두고 S6으로. 예시면 내 서류로 처음부터 */
   onAgain: () => void
   onHome: () => void
 }) {
   const titleRef = useScreenFocus<HTMLHeadingElement>()
   const { overall } = report
+  // 계약일(비교 기준일)을 모르면 새로 생긴 권리와 특약을 가려내지 못한다. "없음"이라고 쓰지 않는다
+  const noBaseline = report.baseline_date === null
+  const unread = report.changes.filter((c) => c.level === 'unknown').length
+  const found = report.changes.length - unread
 
   // 절: 1 새로 생긴 권리, 2 특약 점검은 항상 둔다 ("없음"도 결과다). 3 할 일은 있을 때만.
   const sections: { key: string; render: (n: number) => ReactNode }[] = [
@@ -41,10 +45,17 @@ export function RecheckReportScreen({
       render: (n) => (
         <section className="doc-section" aria-labelledby="rc-changes">
           <h2 id="rc-changes">
-            {n}. 계약 후 새로 생긴 권리 ({report.changes.length}건)
+            {n}. 계약 후 새로 생긴 권리
+            {!noBaseline && ` (${found}건${unread > 0 ? `, 확인 못 함 ${unread}건` : ''})`}
           </h2>
-          {/* 없을 때의 설명은 머리의 종합 판정 문장이 한다. 여기서는 "없음"만 */}
-          {report.changes.length > 0 ? <ChangeTable changes={report.changes} /> : <p>없음</p>}
+          {/* 없을 때의 설명은 머리의 종합 판정 문장이 한다. 여기서는 "없음"·"확인 못 함"만 */}
+          {report.changes.length > 0 ? (
+            <ChangeTable changes={report.changes} />
+          ) : noBaseline ? (
+            <p className="grade grade-unknown">확인 못 함</p>
+          ) : (
+            <p>없음</p>
+          )}
         </section>
       ),
     },
@@ -60,14 +71,16 @@ export function RecheckReportScreen({
                   {/* 상태를 먼저(등급 색), 특약 원문은 근거처럼 인용 상자로 */}
                   <p className="term-status">
                     <span className={`grade grade-${t.level}`}>{t.status}</span>
-                    {t.note && ` · ${maskIds(t.note)}`}
+                    {t.note && ` · ${maskPersonal(t.note)}`}
                   </p>
                   <Excerpt caption="계약서 특약" text={t.term} />
                 </li>
               ))}
             </ul>
+          ) : noBaseline ? (
+            <p className="grade grade-unknown">확인 못 함</p>
           ) : (
-            <p className="muted">계약서에서 특약을 찾지 못했어요.</p>
+            <p className="muted">보증금을 지키는 특약(담보 설정 금지·근저당 말소)을 계약서에서 찾지 못했어요.</p>
           )}
         </section>
       ),
@@ -81,7 +94,7 @@ export function RecheckReportScreen({
           <h2 id="rc-actions">{n}. 할 일</h2>
           <ol className="num-list">
             {report.actions.map((a, i) => (
-              <li key={i}>{maskIds(a)}</li>
+              <li key={i}>{maskPersonal(a)}</li>
             ))}
           </ol>
         </section>
@@ -99,7 +112,7 @@ export function RecheckReportScreen({
           {report.address && (
             <div className="row">
               <dt>대상</dt>
-              <dd>{keepTogether(maskIds(report.address))}</dd>
+              <dd>{keepTogether(maskPersonal(report.address))}</dd>
             </div>
           )}
           <div className="row">
@@ -124,7 +137,7 @@ export function RecheckReportScreen({
             <dt>종합 판정</dt>
             <dd className="verdict-detail">
               <p className={`verdict verdict-${overall.level}`}>{overall.title}</p>
-              {overall.message && <p>{maskIds(overall.message)}</p>}
+              {overall.message && <p>{maskPersonal(overall.message)}</p>}
             </dd>
           </div>
         </dl>
@@ -138,7 +151,7 @@ export function RecheckReportScreen({
 
       <div className="actions">
         <button type="button" className="btn-primary" onClick={onAgain}>
-          다른 등기부로 다시 확인
+          {report.mode === 'demo' ? '내 서류로 재확인' : '다른 등기부로 다시 확인'}
         </button>
         <button type="button" className="link" onClick={onHome}>
           처음으로
@@ -187,7 +200,7 @@ function ChangeTable({ changes }: { changes: RecheckChange[] }) {
               <tr className="entry-row">
                 <td className="c-rank c-nowrap">{SECTION_LABEL[c.section]}</td>
                 <td className="c-purpose">
-                  <span className="entry-purpose">{c.purpose || '목적 없음'}</span>
+                  <span className="entry-purpose">{c.purpose ? maskPersonal(c.purpose) : '목적 없음'}</span>
                 </td>
                 <td className="c-nowrap" data-label="접수일">
                   {formatDate(c.received_at)}

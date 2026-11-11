@@ -16,6 +16,7 @@ from app.schemas import CheckRequest, ContractExtract, Entry, RecheckReport, Rec
 
 DEMO_DIR = Path(__file__).resolve().parents[1] / "demo"
 ID_SHAPE = re.compile(r"\d{6}\s*-\s*[\d*]{7}")
+KST = dt.timezone(dt.timedelta(hours=9))
 PROHIBITION = "임대인은 잔금일 다음 날까지 저당권 등 담보권을 설정하지 않는다. 위반 시 임차인은 계약을 해제할 수 있고, 임대인은 받은 금액 전부를 즉시 반환한다."
 REMOVAL = "임대인은 잔금일까지 등기부상 근저당권을 말소한다."
 
@@ -25,7 +26,14 @@ def fixture() -> RecheckRequest:
 
 
 def original_a(today=dt.date(2026, 11, 29)) -> RecheckRequest:
-    """예시 A의 원래 등기부와 계약서로 다시 확인하는 요청."""
+    """예시 A의 등기부 내용과 계약서로 다시 확인하는 요청. 등기부는 오늘 다시 뗀 것으로 둔다."""
+    a = CheckRequest.model_validate_json((DEMO_DIR / "A.json").read_bytes())
+    a.registry.viewed_at = dt.datetime(today.year, today.month, today.day, 10, 0, tzinfo=KST)
+    return RecheckRequest(registry=a.registry, contract=a.contract, today=today, mode="demo")
+
+
+def a_as_uploaded(today=dt.date(2026, 11, 29)) -> RecheckRequest:
+    """예시 A의 원래 등기부(계약일 2026-11-14 아침에 뗀 것)를 그대로 다시 올린 요청."""
     a = CheckRequest.model_validate_json((DEMO_DIR / "A.json").read_bytes())
     return RecheckRequest(registry=a.registry, contract=a.contract, today=today, mode="demo")
 
@@ -106,13 +114,57 @@ def test_fixture_result():
     ]
 
 
-def test_original_registry_of_a_has_nothing_new():
+def test_fresh_registry_of_a_has_nothing_new():
     report = build_recheck(original_a())
     assert (report.overall.level, report.overall.title) == ("green", "새로 생긴 권리 없음")
     assert report.overall.unknown_note is None
     assert report.changes == []
     assert [(t.status, t.level) for t in report.term_checks] == [("이행", "green")]
     assert report.actions == ["잔금 보내기 직전에 한 번 더 떼어 보고, 입주 당일 전입신고와 확정일자를 받으세요."]
+
+
+def test_original_registry_of_a_cannot_show_changes_after_the_contract():
+    """계약일 아침에 뗀 등기부로는 계약 후 변화를 볼 수 없다 → "없음"이 아니라 "확인 미완료"."""
+    report = build_recheck(a_as_uploaded())
+    assert (report.overall.level, report.overall.title) == ("yellow", "확인 미완료")
+    assert report.overall.message == (
+        "올린 등기부는 2026년 11월 14일에 뗀 것이라 계약일(2026년 11월 14일) 뒤의 변화가 나오지 않아요. "
+        "잔금을 보내기 전에 오늘 날짜로 등기부를 다시 떼어 올려 확인하세요."
+    )
+    assert report.overall.unknown_note == "확인하지 못한 항목 2개"  # 등기부 1 + 특약 1
+    assert report.changes == []
+    assert [(t.status, t.level, t.note) for t in report.term_checks] == [
+        ("확인 필요", "unknown", "올린 등기부로는 계약 후 변화를 확인할 수 없어 이행 여부를 판단하지 못했어요.")
+    ]
+    assert report.actions == ["잔금을 보내기 전에 오늘 날짜로 등기부를 다시 떼어 올려 확인하세요."]
+
+
+@pytest.mark.parametrize(
+    "viewed, title",
+    [
+        (None, "확인 미완료"),  # 열람 일시를 모른다
+        (dt.datetime(2026, 11, 13, 18, 0, tzinfo=KST), "확인 미완료"),  # 계약 전날
+        (dt.datetime(2026, 11, 14, 23, 0, tzinfo=KST), "확인 미완료"),  # 계약 당일
+        (dt.datetime(2026, 11, 14, 15, 30, tzinfo=dt.timezone.utc), "새로 생긴 권리 없음"),  # 한국 시각 11-15 00:30
+        (dt.datetime(2026, 11, 15, 9, 0, tzinfo=KST), "새로 생긴 권리 없음"),
+    ],
+)
+def test_registry_must_be_viewed_after_the_contract_day(viewed, title):
+    req = original_a()
+    req.registry.viewed_at = viewed
+    report = build_recheck(req)
+    assert report.overall.title == title
+    if title == "확인 미완료":
+        assert report.overall.level == "yellow"
+        assert "등기부를 다시 떼어 올려" in report.overall.message
+
+
+def test_stale_registry_still_shows_red_findings():
+    req = fixture()
+    req.registry.viewed_at = dt.datetime(2026, 11, 14, 9, 0, tzinfo=KST)  # 앞뒤가 안 맞아도 적힌 권리는 그대로 알린다
+    report = build_recheck(req)
+    assert (report.overall.level, report.overall.title) == ("red", "잔금 보류 권장")
+    assert "잔금을 보내기 전에 오늘 날짜로 등기부를 다시 떼어 올려 확인하세요." in report.actions
 
 
 # ---------------------------------------------------------------------------
@@ -252,10 +304,10 @@ def test_registry_parsing_reuses_row_rules():
         mortgage(dt.date(2024, 1, 2), amount=100_000_000),
         entry("1-1", "1번근저당권변경", dt.date(2026, 11, 25), holders=[], amount=150_000_000),  # 부기: 새 변경은 보여 준다
     ]
-    notes = [(c.section, c.rank, c.note) for c in build_recheck(req).changes]
+    notes = [(c.section, c.rank, c.level, c.note) for c in build_recheck(req).changes]
     assert notes == [
-        ("gapgu", "5", "계약 후 새로 생김"),
-        ("eulgu", "1-1", "계약 후 새로 생김"),
+        ("gapgu", "5", "red", "계약 후 새로 생김"),
+        ("eulgu", "1-1", "red", "기존 근저당의 채권최고액이 늘었어요"),
     ]
 
 

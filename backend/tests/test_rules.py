@@ -596,7 +596,9 @@ def test_messy_inputs_never_hit_the_failure_fallback():
             )]),
             building=rng.choice([None, BuildingRegister(unit_use=rng.choice([None, "", "사무소"]),
                                                         is_violating=rng.choice([None, True, False]))]),
-            market=rng.choice([None, MarketPrice(price=rng.choice([None, 0, -1, 200_000_000]))]),
+            # 음수 시세는 입력 검증에서 막히지만 규칙도 따로 막는지 본다 (검증을 건너뛰어 만든다)
+            market=rng.choice([None, MarketPrice.model_construct(price=rng.choice([None, 0, -1, 200_000_000]),
+                                                                 method="manual", deals=0, period=None)]),
             today=TODAY,
         )
         report = build_report(req)
@@ -1172,7 +1174,8 @@ def test_r5_typed_price_of_zero_or_less_counts_as_not_entered(typed):
 @pytest.mark.parametrize("price", [0, -100_000_000])
 def test_r5_looked_up_price_of_zero_or_less_is_unknown(price):
     req = base_request()
-    req.market = MarketPrice(price=price, method="same_building", deals=1)
+    # 음수는 입력 검증에서 막히지만 규칙도 따로 막는지 본다 (검증을 건너뛰어 만든다)
+    req.market = MarketPrice.model_construct(price=price, method="same_building", deals=1, period=None)
     r = rule(req, "R5")
     assert r.level == "unknown"
     assert r.unknown_reason == "시세 값이 올바르지 않아요"

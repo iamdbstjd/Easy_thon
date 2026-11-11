@@ -2,11 +2,15 @@
 
 - AI는 읽기만 한다. 위험 판단은 app/rules가 한다.
 - 어느 AI를 쓸지는 ai_provider()가 정한다 (AI_PROVIDER, 없으면 키가 있는 쪽. 둘 다 있으면 OpenAI).
+  AI_PROVIDER는 openai·gpt, anthropic·claude를 받는다. 모르는 값이면 경고를 남기고 키로 고른다.
 - 등기부와 계약서는 병렬로 따로 호출한다.
 - 두 문서를 합쳐 마감 시간(EXTRACT_DEADLINE_SECONDS, 기본 85초) 안에 끝내거나 AI_FAILED로 실패한다.
-  화면은 90초에 포기하므로 그보다 짧다. SDK 자동 재시도는 끄고, 일시적인 오류
-  (연결·timeout, 5xx, 429)는 마감 안에서 문서마다 한 번만 직접 다시 부른다.
+  화면은 90초에 포기하므로 그보다 짧다. 마감은 요청이 들어온 때부터 잰다 (대기열·업로드 시간 포함).
+  SDK 자동 재시도는 끄고, 일시적인 오류(연결·timeout, 5xx, 429, 빈 응답 본문)는 마감 안에서
+  문서마다 한 번만 직접 다시 부른다.
 - 로그에는 문서 종류, 종료 사유, 토큰 수, 걸린 시간만 남긴다 (문서 내용·이름·주소는 남기지 않는다).
+- AI 결과는 주민등록번호·전화번호를 먼저 가린 뒤 검사한다. 날짜·숫자 하나가 틀렸거나 글자 수가 넘치면
+  문서 전체를 실패시키지 않고 그 칸만 비우거나 잘라 낸다 (등기부는 unreadable에 짧게 적는다).
 - 테스트에서는 _client를 가짜 객체로 바꿔 끼운다 (네트워크를 쓰지 않는다).
 """
 
@@ -22,12 +26,14 @@ import email.utils
 import re
 import os
 import time
+import typing
 from typing import Any, Awaitable, Callable, NamedTuple, TypeVar
 
 import anthropic
 import openai
 from pydantic import BaseModel, ValidationError
 
+from app import privacy
 from app.errors import ApiError
 from app.prompts import (
     CONTRACT_SCHEMA,
@@ -37,7 +43,7 @@ from app.prompts import (
     REGISTRY_SYSTEM_PROMPT,
     REGISTRY_USER_TEXT,
 )
-from app.schemas import ContractExtract, ExtractResponse, RegistryExtract
+from app.schemas import LINES_MAX, MAX_YEAR, MIN_YEAR, ContractExtract, ExtractResponse, RegistryExtract
 from app.uploads import DocInput
 
 # ---------------------------------------------------------------------------
@@ -69,19 +75,77 @@ M = TypeVar("M", bound=BaseModel)
 T = TypeVar("T")
 
 
+PROVIDER_ALIASES = {"openai": "openai", "gpt": "openai", "anthropic": "anthropic", "claude": "anthropic"}
+_warned_settings: set[tuple[str, str]] = set()  # 같은 잘못된 설정 경고는 한 번만 남긴다
+
+
+def _warn_once(name: str, value: str, fallback: str) -> None:
+    if (name, value) not in _warned_settings:
+        _warned_settings.add((name, value))
+        logger.warning("invalid %s; using %s", name, fallback)  # 값 자체는 남기지 않는다 (키를 잘못 넣었을 수 있다)
+
+
 def ai_provider() -> str | None:
     """서류를 읽을 AI: "openai" 또는 "anthropic". 쓸 수 있는 키가 없으면 None.
 
-    AI_PROVIDER(openai·anthropic)가 있으면 그쪽 키만 본다. 없으면 OPENAI_API_KEY, ANTHROPIC_API_KEY 순서로 찾는다.
+    AI_PROVIDER(openai·gpt, anthropic·claude)가 있으면 그쪽 키만 본다.
+    없거나 모르는 값이면 OPENAI_API_KEY, ANTHROPIC_API_KEY 순서로 찾는다.
     """
     has_key = {
         "openai": bool(os.environ.get("OPENAI_API_KEY")),
         "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")),
     }
-    choice = os.environ.get("AI_PROVIDER", "").strip().lower()
-    if choice in has_key:
+    raw = os.environ.get("AI_PROVIDER", "").strip().lower()
+    choice = PROVIDER_ALIASES.get(raw)
+    if choice is not None:
         return choice if has_key[choice] else None
+    if raw:
+        _warn_once("AI_PROVIDER", raw, "the provider with an API key")
     return next((name for name, ok in has_key.items() if ok), None)
+
+
+def _openai_efforts() -> frozenset[str]:
+    """OpenAI SDK가 받는 reasoning effort 값 (SDK 타입에서 읽는다)."""
+    try:
+        from openai.types.shared import ReasoningEffort
+
+        values = {
+            value
+            for arg in typing.get_args(ReasoningEffort)
+            for value in typing.get_args(arg)
+            if isinstance(value, str)
+        }
+    except Exception:
+        values = set()
+    return frozenset(values or {"minimal", "low", "medium", "high"})
+
+
+OPENAI_EFFORTS = _openai_efforts()
+
+
+def openai_effort(value: str | None = None) -> str:
+    """value(없으면 OPENAI_REASONING_EFFORT)가 SDK가 받는 값이면 그대로, 아니면 경고를 남기고 기본값."""
+    raw = (value if value is not None else os.environ.get("OPENAI_REASONING_EFFORT", "")).strip().lower()
+    if not raw:
+        return OPENAI_DEFAULT_EFFORT
+    if raw not in OPENAI_EFFORTS:
+        _warn_once("OPENAI_REASONING_EFFORT", raw, OPENAI_DEFAULT_EFFORT)
+        return OPENAI_DEFAULT_EFFORT
+    return raw
+
+
+def openai_model() -> str:
+    return os.environ.get("OPENAI_MODEL", "").strip() or OPENAI_DEFAULT_MODEL
+
+
+def describe_ai() -> dict[str, str]:
+    """시작 로그용: 쓸 AI, 모델, effort. 키가 없으면 provider는 "-"."""
+    provider = ai_provider()
+    if provider == "openai":
+        return {"provider": provider, "model": openai_model(), "effort": openai_effort()}
+    if provider == "anthropic":
+        return {"provider": provider, "model": MODEL, "effort": EFFORT}
+    return {"provider": "-", "model": "-", "effort": "-"}
 
 
 def has_credentials() -> bool:
@@ -94,8 +158,8 @@ class OpenAIClient:
 
     def __init__(self, sdk: Any, *, model: str | None = None, effort: str | None = None) -> None:
         self.sdk = sdk
-        self.model = model or os.environ.get("OPENAI_MODEL", "").strip() or OPENAI_DEFAULT_MODEL
-        self.effort = effort or os.environ.get("OPENAI_REASONING_EFFORT", "").strip() or OPENAI_DEFAULT_EFFORT
+        self.model = model or openai_model()
+        self.effort = openai_effort(effort)
 
     async def close(self) -> None:
         await self.sdk.close()
@@ -290,7 +354,9 @@ async def _call_openai(
             stop = "refusal"
         else:
             stop = "ok"
-            text = next((c.text for c in parts if getattr(c, "type", None) == "output_text"), None)
+            # 답이 output_text 여러 조각으로 나뉘어 올 수 있다. 모두 이어 붙인다.
+            texts = [c.text for c in parts if getattr(c, "type", None) == "output_text" and isinstance(c.text, str)]
+            text = "".join(texts) if texts else None
     elif status == "incomplete" and reason == "max_output_tokens":
         stop = "max_tokens"
     elif status == "incomplete" and reason == "content_filter":
@@ -342,6 +408,9 @@ async def _request_json(
             failure = _Failure(f"api_status_{e.status_code}", retryable, _retry_wait_seconds(e))
         except (anthropic.AnthropicError, openai.OpenAIError) as e:  # 인증 정보 해석 실패 등 그 밖의 SDK 오류
             failure = _Failure(f"sdk_{type(e).__name__}", False)
+        except ValueError:
+            # 200 응답의 본문이 비었거나 잘려 SDK가 JSON을 풀지 못했다 (json.JSONDecodeError). 일시적인 문제로 본다.
+            failure = _Failure("bad_response", True, RETRY_BACKOFF_SECONDS)
         if failure is not None:
             if failure.retryable and not retried_after_error and await _wait_for_retry(name, kind, failure, deadline):
                 retried_after_error = True
@@ -380,13 +449,166 @@ async def _request_json(
             raise _ai_failed(kind, "invalid_json") from None
 
 
+# 값이 틀리면 문서 전체를 실패시키지 않고 비우는 칸 (모두 Optional이다). 등기부는 unreadable에 적을 이름.
+_NULLABLE_FIELDS = {
+    "received_at": "접수일",
+    "viewed_at": "열람 일시",
+    "amount": "금액",
+    "page": "페이지 번호",
+    "area_m2": "전용면적",
+    "contract_date": "계약일",
+    "balance_date": "잔금일",
+    "move_in_date": "입주일",
+    "lease_end": "계약 종료일",
+    "deposit": "보증금",
+    "monthly_rent": "월세",
+}
+_SECTION_NAMES = {"gapgu": "갑구", "eulgu": "을구"}
+# 잘라 낸 칸을 unreadable에 적을 이름
+_CUT_LABELS = {
+    "gapgu": "갑구 항목",
+    "eulgu": "을구 항목",
+    "source_text": "원문",
+    "holders": "권리자",
+    "purpose": "등기목적",
+    "cause": "등기원인",
+    "rank": "순위번호",
+    "address_jibun": "지번 주소",
+    "address_road": "도로명 주소",
+    "building_name": "건물 이름",
+    "dong": "동",
+    "ho": "호",
+    "floor": "층",
+    "building_use_lines": "건물 표시",
+}
+_REPAIR_ROUNDS = 3  # 고친 뒤 메모를 붙이면 목록이 넘칠 수 있어 몇 번 더 본다
+
+
+def _loc_text(loc: tuple) -> str:
+    return ".".join(str(p) for p in loc)
+
+
+def _container(data: Any, loc: tuple) -> tuple[Any, Any] | None:
+    """loc의 마지막 칸을 담은 dict·list와 그 키. 없으면 None."""
+    if not loc:
+        return None
+    node = data
+    for part in loc[:-1]:
+        if isinstance(node, dict) and isinstance(part, str) and part in node:
+            node = node[part]
+        elif isinstance(node, list) and isinstance(part, int) and 0 <= part < len(node):
+            node = node[part]
+        else:
+            return None
+    key = loc[-1]
+    if isinstance(node, dict) and isinstance(key, str) and key in node:
+        return node, key
+    if isinstance(node, list) and isinstance(key, int) and 0 <= key < len(node):
+        return node, key
+    return None
+
+
+def _has_final_consonant(word: str) -> bool:
+    last = word[-1]
+    return "가" <= last <= "힣" and (ord(last) - 0xAC00) % 28 != 0
+
+
+def _object_particle(word: str) -> str:
+    """받침이 있으면 "을", 없으면 "를"."""
+    return "을" if _has_final_consonant(word) else "를"
+
+
+def _subject_particle(word: str) -> str:
+    """받침이 있으면 "이", 없으면 "가"."""
+    return "이" if _has_final_consonant(word) else "가"
+
+
+def _entry_label(data: dict, loc: tuple) -> str:
+    """갑구·을구 항목 안의 위치면 "갑구 3번 " 같은 앞말, 아니면 빈 문자열."""
+    if len(loc) < 3 or loc[0] not in _SECTION_NAMES or not isinstance(loc[1], int):
+        return ""
+    rank = data[loc[0]][loc[1]].get("rank") if isinstance(data[loc[0]][loc[1]], dict) else None
+    label = rank.strip() if isinstance(rank, str) and 0 < len(rank.strip()) <= 10 else f"{loc[1] + 1}번째 항목"
+    label += "번" if label[-1].isdigit() else ""
+    return f"{_SECTION_NAMES[loc[0]]} {label} "
+
+
+def _unreadable_note(data: dict, loc: tuple) -> str:
+    """비운 칸을 사용자에게 알리는 짧은 메모 (값은 적지 않는다). 예: "갑구 3번 접수일을 읽지 못함"."""
+    field = _NULLABLE_FIELDS[loc[-1]]
+    return f"{_entry_label(data, loc)}{field}{_object_particle(field)} 읽지 못함"
+
+
+def _cut_note(data: dict, loc: tuple, value: Any, limit: int) -> str | None:
+    """잘라 낸 칸을 알리는 메모. 예: "갑구 항목이 많아 앞의 500개만 옮김", "갑구 3번 원문이 길어 앞부분만 옮김"."""
+    if loc[0] == "unreadable":  # 읽지 못한 부분 목록 자체는 알리지 않는다
+        return None
+    key = loc[-1] if isinstance(loc[-1], str) else loc[-2] if len(loc) >= 2 else None
+    label = _CUT_LABELS.get(key) if isinstance(key, str) else None
+    if label is None:
+        return None
+    where = _entry_label(data, loc)
+    if isinstance(value, list):
+        return f"{where}{label}{_subject_particle(label)} 많아 앞의 {limit}개만 옮김"
+    return f"{where}{label}{_subject_particle(label)} 길어 앞부분만 옮김"
+
+
+def _repair(data: Any, errors: list[dict], kind: str) -> list[str] | None:
+    """고칠 수 있는 오류만 고친다 (data를 바꾼다). 하나라도 못 고치면 None, 다 고치면 unreadable 메모 목록.
+
+    - 글자 수·목록 길이가 넘치면 상한까지 자른다 (등기부는 무엇을 잘랐는지 적는다).
+    - 날짜·숫자 칸(_NULLABLE_FIELDS) 값이 틀리면(없는 날짜, 범위 밖 등) 그 칸을 비운다.
+    """
+    notes: list[str] = []
+    # 목록을 자르기 전에 그 안의 항목부터 고친다 (깊은 위치 먼저).
+    for err in sorted(errors, key=lambda e: len(e["loc"]), reverse=True):
+        loc, etype = tuple(err["loc"]), err["type"]
+        found = _container(data, loc)
+        if found is None:
+            return None
+        node, key = found
+        value = node[key]
+        limit = (err.get("ctx") or {}).get("max_length")
+        if etype in ("string_too_long", "too_long") and isinstance(limit, int) and isinstance(value, (str, list)):
+            node[key] = value[:limit]
+            note = _cut_note(data, loc, value, limit) if kind == "registry" else None
+        elif isinstance(key, str) and key in _NULLABLE_FIELDS and isinstance(node, dict):
+            node[key] = None
+            note = _unreadable_note(data, loc) if kind == "registry" else None
+        else:
+            return None
+        if note is not None and note not in notes:
+            notes.append(note)
+    return notes
+
+
+def _with_notes(unreadable: list, notes: list[str]) -> list:
+    """unreadable 끝에 메모를 붙인다. 상한(LINES_MAX)을 넘으면 메모가 들어갈 자리를 남기고 앞의 것만 둔다."""
+    notes = [note for note in dict.fromkeys(notes) if note not in unreadable][:LINES_MAX]
+    return unreadable[: LINES_MAX - len(notes)] + notes
+
+
 def _validate(model: type[M], data: Any, kind: str) -> M:
+    """AI 결과를 모델로 검사한다. 주민등록번호·전화번호는 먼저 가리고, 고칠 수 있는 오류는 고친다."""
+    data = privacy.mask_value(data)  # 새 사본이라 고쳐도 원래 값은 그대로다
+    for _ in range(_REPAIR_ROUNDS):
+        try:
+            return model.model_validate(data)
+        except ValidationError as e:
+            errors = e.errors(include_url=False, include_input=False)
+            # 오류 위치(필드 이름)만 남긴다. 값에는 개인정보가 있을 수 있다.
+            locs = [_loc_text(err["loc"]) for err in errors[:5]]
+            notes = _repair(data, errors, kind)
+            if notes is None:
+                logger.warning("extract schema mismatch doc=%s errors=%d at=%s", kind, len(errors), locs)
+                raise _ai_failed(kind, "schema_mismatch") from None
+            logger.info("extract repaired doc=%s fixed=%d at=%s", kind, len(errors), locs)
+            if notes and isinstance(data.get("unreadable", []), list):
+                data["unreadable"] = _with_notes(data.get("unreadable", []), notes)
     try:
         return model.model_validate(data)
     except ValidationError as e:
-        # 오류 위치(필드 이름)만 남긴다. 값에는 개인정보가 있을 수 있다.
-        locs = [".".join(str(p) for p in err["loc"]) for err in e.errors()[:5]]
-        logger.warning("extract schema mismatch doc=%s errors=%d at=%s", kind, e.error_count(), locs)
+        logger.warning("extract schema mismatch doc=%s errors=%d after repair", kind, e.error_count())
         raise _ai_failed(kind, "schema_mismatch") from None
 
 
@@ -408,18 +630,31 @@ async def extract_registry(client: Any, doc: DocInput, *, deadline: float | None
         raise ApiError("LAND_REGISTRY", reason="registry:land")
     if registry.viewed_at is not None:
         # 열람 일시는 한국 시간으로 맞춘다 (시간대가 없으면 한국 시간으로 본다).
+        # 바꾼 뒤 허용 범위(연도)를 벗어나면(예: 2100-12-31T23:30-12:00 → 2101년) 비우고 적는다.
         viewed = registry.viewed_at
         viewed = viewed.replace(tzinfo=KST) if viewed.tzinfo is None else viewed.astimezone(KST)
-        registry = registry.model_copy(update={"viewed_at": viewed})
+        if MIN_YEAR <= viewed.year <= MAX_YEAR:
+            registry = registry.model_copy(update={"viewed_at": viewed})
+        else:
+            note = _unreadable_note({}, ("viewed_at",))
+            registry = RegistryExtract.model_validate(
+                registry.model_dump() | {"viewed_at": None, "unreadable": _with_notes(registry.unreadable, [note])}
+            )
     return registry
 
 
 # 특약 칸에 "없음"처럼 특약이 없다는 표시만 있을 때 AI가 그 글자를 특약으로 옮기는 경우가 있다.
-_NO_TERM_MARKS = {"없음", "해당없음", "특약없음", "특약사항없음", "없다", "無", "none", "na"}
+# 구두점·괄호·공백·'/'를 빼고 비교한다 ("특약사항: 없음" → "특약사항없음", "N/A" → "na").
+_NO_TERM_MARKS = {
+    "없음", "없다", "없습니다", "없슴", "해당없음", "해당사항없음", "해당없습니다", "해당사항없습니다",
+    "특약없음", "특약사항없음", "특약없습니다", "특약사항없습니다", "별도특약없음", "기타특약없음",
+    "이하여백", "無", "none", "na", "nil",
+}
+_TERM_NUMBER = re.compile(r"^\s*(?:\d{1,2}|[①-⑳])\s*[.)]?\s*")  # 앞의 "1." "①" 같은 번호
 
 
 def _is_no_term_mark(term: str) -> bool:
-    key = re.sub(r"[\s.,·:()\[\]\-—~]", "", term).lower()
+    key = re.sub(r"[\s.,·:;()\[\]{}<>\-—–~/\\*•'\"]", "", _TERM_NUMBER.sub("", term)).lower()
     return key == "" or key in _NO_TERM_MARKS
 
 
@@ -460,35 +695,48 @@ async def _extract_both(
     return results[0], (results[1] if contract is not None else None)  # type: ignore[return-value]
 
 
-async def _with_deadline(work: Callable[[float], Awaitable[T]]) -> T:
-    """work(deadline)를 마감 시간(deadline_seconds) 안에 끝낸다. 넘으면 진행 중인 호출을 취소하고 AI_FAILED."""
+async def _with_deadline(work: Callable[[float], Awaitable[T]], started_at: float | None = None) -> T:
+    """work(deadline)를 마감 시간(deadline_seconds) 안에 끝낸다. 넘으면 진행 중인 호출을 취소하고 AI_FAILED.
+
+    started_at(이벤트 루프 시각)이 있으면 그때부터 잰다. 요청이 대기열에서 기다리거나 업로드에 쓴 시간도
+    마감에 넣어야 화면의 90초 시계보다 먼저 끝난다.
+    """
     budget = deadline_seconds()
-    deadline = asyncio.get_running_loop().time() + budget
+    now = asyncio.get_running_loop().time()
+    deadline = (now if started_at is None else min(started_at, now)) + budget
+    left = deadline - now
+    if left <= 0:
+        raise ApiError("AI_FAILED", reason=f"deadline_{budget:g}s")
     try:
-        return await asyncio.wait_for(work(deadline), timeout=budget)
+        return await asyncio.wait_for(work(deadline), timeout=left)
     except asyncio.TimeoutError:
         raise ApiError("AI_FAILED", reason=f"deadline_{budget:g}s") from None
 
 
-async def extract_documents(registry: DocInput, contract: DocInput | None, *, client: Any = None) -> ExtractResponse:
+async def extract_documents(
+    registry: DocInput, contract: DocInput | None, *, client: Any = None, started_at: float | None = None
+) -> ExtractResponse:
     """등기부(필수)와 계약서(선택)를 병렬로 읽는다.
 
-    - 두 문서를 합쳐 deadline_seconds() 안에 끝내지 못하면 진행 중인 호출을 취소하고 AI_FAILED.
+    - 두 문서를 합쳐 deadline_seconds() 안에(started_at이 있으면 그때부터) 끝내지 못하면
+      진행 중인 호출을 취소하고 AI_FAILED.
     - 등기부 오류를 계약서 오류보다 먼저 알린다. 등기부가 실패하면 계약서는 기다리지 않는다.
     """
     client = client if client is not None else get_client()
     started = time.perf_counter()
     registry_result, contract_result = await _with_deadline(
-        lambda deadline: _extract_both(client, registry, contract, deadline)
+        lambda deadline: _extract_both(client, registry, contract, deadline), started_at
     )
     logger.info("extract done docs=%d took=%.1fs", 1 + (contract is not None), time.perf_counter() - started)
     return ExtractResponse(registry=registry_result, contract=contract_result)
 
 
-async def extract_contract_only(contract: DocInput, *, client: Any = None) -> ContractExtract:
+async def extract_contract_only(
+    contract: DocInput, *, client: Any = None, started_at: float | None = None
+) -> ContractExtract:
     """계약서 하나만 읽는다 (수정된 계약서). 호출·재시도·마감·NOT_CONTRACT는 extract_documents와 같다."""
     client = client if client is not None else get_client()
     started = time.perf_counter()
-    result = await _with_deadline(lambda deadline: extract_contract(client, contract, deadline=deadline))
+    result = await _with_deadline(lambda deadline: extract_contract(client, contract, deadline=deadline), started_at)
     logger.info("extract done docs=1 contract_only took=%.1fs", time.perf_counter() - started)
     return result

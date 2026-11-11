@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:mask": "node scripts/check-mask.ts"
   },
   "dependencies": {
     "@fontsource/noto-serif-kr": "^5.3.1",

@@ -1,11 +1,13 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type { RecheckRequest } from '../api/types'
+import { ConsentNotice } from '../components/ConsentNotice'
+import { ContractField } from '../components/ContractField'
 import { FilePicker } from '../components/FilePicker'
 import { DateField, DateTimeField, ReadRow } from '../components/fields'
-import { checkRegistryFile, prepareContractFile } from '../lib/files'
+import { checkRegistryFile } from '../lib/files'
 import { keepTogether } from '../lib/keepTogether'
-import { maskIds } from '../lib/mask'
+import { maskPersonal } from '../lib/mask'
 import { useScreenFocus } from '../lib/useScreenFocus'
 import { recheckFormFrom, recheckRequestFrom } from '../state/recheck'
 import type { RecheckCarry, RecheckForm, RecheckUpload } from '../state/recheck'
@@ -21,40 +23,46 @@ export function RecheckUploadScreen({
   upload,
   setUpload,
   onSubmit,
+  onDropCarry,
+  onBackToReport,
+  onPrivacy,
   onHome,
 }: {
   carry: RecheckCarry | null
   upload: RecheckUpload
   setUpload: Dispatch<SetStateAction<RecheckUpload>>
   onSubmit: () => void
+  /** [다른 계약서 올리기]: 이어 받은 계약서를 버리고 계약서를 새로 올린다 */
+  onDropCarry: () => void
+  /** 검토서가 있을 때만: [검토서로 돌아가기] */
+  onBackToReport?: () => void
+  onPrivacy: () => void
   onHome: () => void
 }) {
   const titleRef = useScreenFocus<HTMLHeadingElement>()
   const [registryError, setRegistryError] = useState<string | null>(null)
-  const [contractError, setContractError] = useState<string | null>(null)
   const [contractBusy, setContractBusy] = useState(false)
-  const contractPick = useRef(0)
+  const registryPick = useRef(0)
+
+  // 화면을 떠나면 아직 확인 중인 등기부는 버린다
+  useEffect(() => {
+    const seq = registryPick
+    return () => {
+      seq.current += 1
+    }
+  }, [])
 
   async function pickRegistry(file: File) {
+    const seq = ++registryPick.current
     setRegistryError(null)
     const error = await checkRegistryFile(file)
+    if (seq !== registryPick.current) return
     if (error) setRegistryError(error)
     else setUpload((u) => ({ ...u, registry: file }))
   }
 
-  async function pickContract(file: File) {
-    const pick = ++contractPick.current
-    const isCurrent = () => pick === contractPick.current
-    setContractError(null)
-    setContractBusy(true)
-    const result = await prepareContractFile(file)
-    if (!isCurrent()) return
-    setContractBusy(false)
-    if ('error' in result) setContractError(result.error)
-    else setUpload((u) => ({ ...u, contract: result.file }))
-  }
-
-  const ready = upload.registry !== null && (carry !== null || upload.contract !== null) && !contractBusy
+  const filesReady = upload.registry !== null && (carry !== null || upload.contract !== null) && !contractBusy
+  const ready = filesReady && upload.consent
 
   return (
     <>
@@ -75,6 +83,7 @@ export function RecheckUploadScreen({
           describedBy="recheck-file-note"
           onPick={pickRegistry}
           onClear={() => {
+            registryPick.current += 1
             setRegistryError(null)
             setUpload((u) => ({ ...u, registry: null }))
           }}
@@ -83,25 +92,20 @@ export function RecheckUploadScreen({
           <ReadRow label="계약서">
             <p>앞 화면의 계약서를 그대로 써요.</p>
             {carry.contract.address && (
-              <p className="muted">{keepTogether(maskIds(carry.contract.address))}</p>
+              <p className="muted">{keepTogether(maskPersonal(carry.contract.address))}</p>
             )}
+            <button type="button" className="link" onClick={onDropCarry}>
+              다른 계약서 올리기
+            </button>
           </ReadRow>
         ) : (
-          <FilePicker
+          <ContractField
             label="계약서"
             required
-            accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
-            file={upload.contract}
-            busy={contractBusy}
-            error={contractError}
+            value={upload.contract}
             describedBy="recheck-file-note"
-            onPick={pickContract}
-            onClear={() => {
-              contractPick.current += 1
-              setContractError(null)
-              setContractBusy(false)
-              setUpload((u) => ({ ...u, contract: null }))
-            }}
+            onChange={(contract) => setUpload((u) => ({ ...u, contract }))}
+            onBusyChange={setContractBusy}
           />
         )}
       </div>
@@ -111,7 +115,11 @@ export function RecheckUploadScreen({
           : '등기부는 PDF(10MB·30쪽 이하), 계약서는 사진이나 PDF(10MB 이하)'}
       </p>
 
-      <p className="mt-4">문서는 AI 분석을 위해 외부로 전송되고, 저장되지 않아요.</p>
+      <ConsentNotice
+        checked={upload.consent}
+        onChange={(consent) => setUpload((u) => ({ ...u, consent }))}
+        onPrivacy={onPrivacy}
+      />
 
       <div className="actions mt-2">
         <button
@@ -123,13 +131,22 @@ export function RecheckUploadScreen({
         >
           서류 읽기
         </button>
+        {onBackToReport && (
+          <button type="button" className="link" onClick={onBackToReport}>
+            검토서로 돌아가기
+          </button>
+        )}
         <button type="button" className="link" onClick={onHome}>
           처음으로
         </button>
       </div>
       {!ready && (
         <p id="recheck-reason" className="visually-hidden">
-          {carry ? '오늘 뗀 등기부를 고르면 읽을 수 있어요.' : '등기부와 계약서를 고르면 읽을 수 있어요.'}
+          {!filesReady
+            ? carry
+              ? '오늘 뗀 등기부를 고르면 읽을 수 있어요.'
+              : '등기부와 계약서를 고르면 읽을 수 있어요.'
+            : '위 내용을 확인하면 읽을 수 있어요.'}
         </p>
       )}
     </>
@@ -142,12 +159,15 @@ export function RecheckConfirmScreen({
   checking,
   onRecheck,
   onReselect,
+  onBackToReport,
   onHome,
 }: {
   draft: RecheckRequest
   checking: boolean
   onRecheck: (req: RecheckRequest) => void
   onReselect: () => void
+  /** 검토서가 있을 때만: [검토서로 돌아가기] */
+  onBackToReport?: () => void
   onHome: () => void
 }) {
   const titleRef = useScreenFocus<HTMLHeadingElement>()
@@ -186,6 +206,11 @@ export function RecheckConfirmScreen({
         <button type="button" className="link" disabled={checking} onClick={onReselect}>
           서류 다시 고르기
         </button>
+        {onBackToReport && (
+          <button type="button" className="link" disabled={checking} onClick={onBackToReport}>
+            검토서로 돌아가기
+          </button>
+        )}
         <button type="button" className="link" disabled={checking} onClick={onHome}>
           처음으로
         </button>

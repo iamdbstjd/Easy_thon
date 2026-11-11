@@ -1171,3 +1171,84 @@ details:not([open]) > summary .when-open {
   padding: 10px 0 4px;
   border-top: 1px solid var(--rule);
 }
+
+/* ---------------------------------------------------------------------------
+   서류를 보내기 전 확인 (S2·S6·수정된 계약서 올리기): 1px 선 아래 문장 + 확인 칸
+   --------------------------------------------------------------------------- */
+
+.consent {
+  margin-top: 32px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+.consent > * + * {
+  margin-top: 4px;
+}
+/* 확인 칸: 줄 전체가 누르는 영역 (44px 이상) */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.check-row input,
+.choice input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--ink);
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------------------
+   계약서 사진 가리기: 사진 미리보기(1px 테두리) 위에 검게 칠한다
+   --------------------------------------------------------------------------- */
+
+.mask-tool {
+  margin-top: 4px;
+  padding: 8px 0 4px;
+  border-top: 1px solid var(--rule);
+}
+.mask-tool > * + * {
+  margin-top: 6px;
+}
+.mask-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+}
+/* 사진 비율 그대로, 칸 폭과 화면 높이 안에 들어오게. 칠하는 동안 화면이 움직이지 않게 한다 */
+.mask-canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  width: auto;
+  height: auto;
+  border: 1px solid var(--rule);
+  touch-action: none;
+  cursor: crosshair;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.mask-canvas[hidden] {
+  display: none;
+}
+.mask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 24px;
+}

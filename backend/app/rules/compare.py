@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 from app.schemas import (
@@ -38,7 +39,7 @@ from .common import (
     unit_label,
     unit_text,
 )
-from .engine import contract_address_text, registry_address_text
+from .engine import contract_address_text, is_prohibition_clause, is_removal_clause, registry_address_text
 from .report import build_report
 
 logger = logging.getLogger(__name__)
@@ -59,9 +60,10 @@ NOTE_TERM_ALREADY = "수정 전 계약서에도 있던 특약이라 새로 반�
 NOTE_DOCUMENT = "계약서로는 확인할 수 없어요. 받았는지 직접 확인하세요."
 NOTE_FAILED = "이 항목을 확인하는 중 문제가 생겼어요"
 
-# 위험 정도 (클수록 나쁨). 🟢 쪽으로 가면 개선이다.
+# 위험 정도 (클수록 나쁨). 🟢 쪽으로 가면 개선이다. 단 ⚪로 바뀐 것은 개선도 악화도 아니라 "확인 못 함"이다.
 SEVERITY = {"green": 0, "unknown": 1, "yellow": 2, "red": 3}
-_CHANGE_ORDER = {"개선": 0, "악화": 1, "그대로": 2}
+CHANGE_UNKNOWN = "확인 못 함"
+_CHANGE_ORDER = {"개선": 0, "악화": 1, CHANGE_UNKNOWN: 2, "그대로": 3}
 
 
 # ---------------------------------------------------------------------------
@@ -94,12 +96,17 @@ def _term_kind(term: str) -> Optional[str]:
 
 
 def _has_kind(clause: str, kind: Optional[str]) -> bool:
-    """계약서 특약 한 문장에 그 종류의 핵심어가 있는지."""
+    """계약서 특약 한 문장이 그 종류인지.
+
+    담보 설정 금지·근저당 말소는 검사(R12)·계약 후 재확인과 같은 정의를 쓴다
+    (말소 약속이나 임차인 전세대출 협조 문장은 담보 설정 금지가 아니다).
+    """
+    if kind == KIND_NO_NEW_MORTGAGE:
+        return is_prohibition_clause(clause)
+    if kind == KIND_CLEAR_MORTGAGE:
+        return is_removal_clause(clause)
     t = compact(clause)
-    if kind == KIND_NO_NEW_MORTGAGE:  # 말소를 약속하는 문장의 "저당"은 담보 설정 금지가 아니다
-        return "담보" in t or "설정하지" in t or ("저당" in t and "말소" not in t)
     keywords = {
-        KIND_CLEAR_MORTGAGE: ("말소",),
         KIND_JEONSE_GUARANTEE: ("반환보증", "보증보험"),
         KIND_SHOW_DOCUMENTS: ("납세증명서", "확정일자"),
         KIND_TRUST_CONSENT: ("동의서", "수탁자"),
@@ -111,13 +118,22 @@ def _clauses(contract: Optional[ContractExtract]) -> list[str]:
     return [t.strip() for t in (contract.special_terms if contract else []) if t and t.strip()]
 
 
+# 특약 앞의 번호("1.", "2)", "(3)", "①", "-")와 끝의 마침표는 다시 읽을 때마다 달라질 수 있어 비교에서 뺀다
+_CLAUSE_NUMBER = re.compile(r"^(?:\(?\d{1,3}[.)]|[①-⑳]|[-*•·])\s*")
+
+
+def clause_key(term: str) -> str:
+    """특약 비교용 값: 공백, 앞 번호, 끝 마침표를 뺀 문장."""
+    return compact(_CLAUSE_NUMBER.sub("", term.strip())).rstrip(".。")
+
+
 def _term_fulfillment(
     term: str, before: Optional[ContractExtract], after: Optional[ContractExtract]
 ) -> RequestFulfillment:
     kind = _term_kind(term)
-    before_keys = {compact(t) for t in _clauses(before)}
+    before_keys = {clause_key(t) for t in _clauses(before)}
     after_clauses = [t for t in _clauses(after) if _has_kind(t, kind)]
-    new_clauses = [t for t in after_clauses if compact(t) not in before_keys]
+    new_clauses = [t for t in after_clauses if clause_key(t) not in before_keys]
     if new_clauses:
         status, note = "반영", NOTE_TERM_DONE
     elif after_clauses:  # 수정 전부터 있던 문장뿐이면 새로 반영된 것이 아니다
@@ -174,19 +190,23 @@ def fulfillment_of(before_report: Report, after_report: Report, before: CheckReq
 # ---------------------------------------------------------------------------
 
 
+def change_of(before: str, after: str) -> str:
+    """등급 변화. 수정 후 ⚪가 된 것은 위험이 줄어든 것이 아니므로 "확인 못 함"이다."""
+    if before == after:
+        return "그대로"
+    if after == "unknown":
+        return CHANGE_UNKNOWN
+    return "개선" if SEVERITY[after] < SEVERITY[before] else "악화"
+
+
 def rule_deltas(before_report: Report, after_report: Report) -> list[RuleDelta]:
-    """규칙 13개의 수정 전·후 등급. 개선 → 악화 → 그대로, 같으면 규칙 번호 순서."""
+    """규칙 13개의 수정 전·후 등급. 개선 → 악화 → 확인 못 함 → 그대로, 같으면 규칙 번호 순서."""
     before = {r.id: r for r in before_report.results}
     after = {r.id: r for r in after_report.results}
     deltas = []
     for rid, name in RULE_NAMES.items():
         b, a = before[rid].level, after[rid].level
-        if SEVERITY[a] < SEVERITY[b]:
-            change = "개선"
-        elif SEVERITY[a] > SEVERITY[b]:
-            change = "악화"
-        else:
-            change = "그대로"
+        change = change_of(b, a)
         title = after[rid].title if a in ("red", "yellow") else ""
         deltas.append(RuleDelta(id=rid, name=name, before=b, after=a, change=change, after_title=title))
     deltas.sort(key=lambda d: (_CHANGE_ORDER[d.change], int(d.id[1:])))
@@ -220,9 +240,9 @@ def contract_changes(before: Optional[ContractExtract], after: Optional[Contract
         if old != new:
             changes.append(ContractChange(field=field, before=old, after=new))
     before_terms, after_terms = _clauses(before), _clauses(after)
-    before_keys, after_keys = {compact(t) for t in before_terms}, {compact(t) for t in after_terms}
-    changes += [ContractChange(field="특약 추가", after=t) for t in after_terms if compact(t) not in before_keys]
-    changes += [ContractChange(field="특약 삭제", before=t) for t in before_terms if compact(t) not in after_keys]
+    before_keys, after_keys = {clause_key(t) for t in before_terms}, {clause_key(t) for t in after_terms}
+    changes += [ContractChange(field="특약 추가", after=t) for t in after_terms if clause_key(t) not in before_keys]
+    changes += [ContractChange(field="특약 삭제", before=t) for t in before_terms if clause_key(t) not in after_keys]
     return [
         c.model_copy(update={k: mask_id_numbers(getattr(c, k)) for k in ("before", "after") if getattr(c, k)})
         for c in changes
@@ -235,13 +255,25 @@ def contract_changes(before: Optional[ContractExtract], after: Optional[Contract
 
 
 def headline_of(before_report: Report, after_report: Report, rate: FulfillmentRate) -> str:
-    """한 줄 요약. 수정 전·후 모두 0인 항목은 뺀다."""
+    """한 줄 요약. 수정 전·후 모두 0인 항목은 뺀다.
+
+    수정 후 ⚪로 바뀐 규칙은 위험·주의가 줄어든 것처럼 보이지 않게 따로 적는다
+    (예: "위험 3건 → 2건(1건은 확인 못 함으로 바뀜)").
+    """
     b, a = before_report.counts, after_report.counts
+    before_levels = {r.id: r.level for r in before_report.results}
+    lost = {"red": 0, "yellow": 0, "green": 0}  # 수정 후 ⚪가 된 규칙 수 (수정 전 등급별)
+    for r in after_report.results:
+        was = before_levels.get(r.id)
+        if r.level == "unknown" and was in lost:
+            lost[was] += 1
     parts = []
-    if b.red or a.red:
-        parts.append(f"위험 {b.red}건 → {a.red}건")
-    if b.yellow or a.yellow:
-        parts.append(f"주의 {b.yellow}건 → {a.yellow}건")
+    for label, before_n, after_n, level in (("위험", b.red, a.red, "red"), ("주의", b.yellow, a.yellow, "yellow")):
+        if before_n or after_n:
+            note = f"({lost[level]}건은 확인 못 함으로 바뀜)" if lost[level] else ""
+            parts.append(f"{label} {before_n}건 → {after_n}건{note}")
+    if lost["green"]:
+        parts.append(f"확인 못 함으로 바뀐 항목 {lost['green']}건")
     if rate.total:
         parts.append(f"요청 {rate.total}건 중 {rate.done}건 반영")
     return ", ".join(parts) or "수정 전·후 모두 위험·주의 신호와 요청 항목이 없어요"

@@ -22,7 +22,7 @@ import { CHECKLIST_WHEN_ORDER, COUNT_LABEL, DOC_LABEL, LEVEL_LABEL, ruleNumber }
 import { HELP_LINKS, OFF_REGISTRY_ROWS, SPECIAL_TERMS_NOTE } from '../content/static'
 import { formatDate, isoToLocalInput } from '../lib/format'
 import { keepTogether } from '../lib/keepTogether'
-import { maskIds } from '../lib/mask'
+import { maskPersonal } from '../lib/mask'
 import { useScreenFocus } from '../lib/useScreenFocus'
 
 /** S5 리포트: 보증금 위험 검토서 */
@@ -96,7 +96,7 @@ export function ReportScreen({
                 {unknown.map((r) => (
                   <li key={r.id}>
                     {r.name}
-                    {r.unknown_reason && <p className="item-detail">{maskIds(r.unknown_reason)}</p>}
+                    {r.unknown_reason && <p className="item-detail">{maskPersonal(r.unknown_reason)}</p>}
                   </li>
                 ))}
               </ul>
@@ -108,7 +108,7 @@ export function ReportScreen({
                 {green.map((r) => (
                   <li key={r.id}>
                     {r.name}
-                    {r.id === 'R5' && r.summary && <p className="item-detail">{maskIds(r.summary)}</p>}
+                    {r.id === 'R5' && r.summary && <p className="item-detail">{maskPersonal(r.summary)}</p>}
                   </li>
                 ))}
               </ul>
@@ -136,7 +136,7 @@ export function ReportScreen({
   }
   // amendment가 없는 예전 백엔드: 예전 두 절(메시지, 특약)로 보여준다
   if (!amendment && report.request_message) {
-    const message = maskIds(report.request_message)
+    const message = maskPersonal(report.request_message)
     sections.push({
       key: 'message',
       render: (n) => (
@@ -213,7 +213,7 @@ export function ReportScreen({
           {target?.address && (
             <div className="row">
               <dt>검토 대상</dt>
-              <dd>{keepTogether(maskIds(target.address))}</dd>
+              <dd>{keepTogether(maskPersonal(target.address))}</dd>
             </div>
           )}
           {target && (
@@ -295,7 +295,7 @@ export function ReportScreen({
 
 /** 대조표 값: 없으면 "—", 주민등록번호 모양은 가리고 지번은 한 줄로 묶는다 */
 function cellValue(value: string | null): ReactNode {
-  return value ? keepTogether(maskIds(value)) : '—'
+  return value ? keepTogether(maskPersonal(value)) : '—'
 }
 
 /** 1절: 계약서·등기부 대조표. 항목 | 계약서 | 등기부·시세 | 결과 */
@@ -381,10 +381,10 @@ function AmendmentSection({
           {amendment.fixes.map((fix, i) => (
             <li key={i}>
               <p>
-                <strong>{fix.item}</strong>: {fix.current ? maskIds(fix.current) : '없음'} →{' '}
-                {maskIds(fix.proposed)}
+                <strong>{fix.item}</strong>: {fix.current ? maskPersonal(fix.current) : '없음'} →{' '}
+                {maskPersonal(fix.proposed)}
               </p>
-              {fix.reason && <p className="muted">이유: {maskIds(fix.reason)}</p>}
+              {fix.reason && <p className="muted">이유: {maskPersonal(fix.reason)}</p>}
             </li>
           ))}
         </ul>
@@ -426,7 +426,7 @@ function AmendmentSection({
           {amendment.title}
         </h2>
         <span className="head-links no-print">
-          <CopyButton text={maskIds(amendment.text)} label={`${amendment.title} 복사`} />
+          <CopyButton text={maskPersonal(amendment.text)} label={`${amendment.title} 복사`} />
           <button type="button" className="link" onClick={() => window.print()}>
             인쇄
           </button>
@@ -436,7 +436,7 @@ function AmendmentSection({
         {address && (
           <div className="row">
             <dt>대상</dt>
-            <dd>{keepTogether(maskIds(address))}</dd>
+            <dd>{keepTogether(maskPersonal(address))}</dd>
           </div>
         )}
         <div className="row">
@@ -592,15 +592,15 @@ function Finding({ result, number }: { result: RuleResult; number: number }) {
           <span className="visually-hidden">
             {number}. {LEVEL_LABEL[result.level]}:{' '}
           </span>
-          {result.name || maskIds(result.title)}
+          {result.name || maskPersonal(result.title)}
         </h3>
       </div>
       <div className="finding-body">
-        {result.title && result.name && <p>{maskIds(withPeriod(result.title))}</p>}
-        {result.summary && <p>{maskIds(result.summary)}</p>}
+        {result.title && result.name && <p>{maskPersonal(withPeriod(result.title))}</p>}
+        {result.summary && <p>{maskPersonal(result.summary)}</p>}
         {result.action && (
           <p>
-            <span className="finding-action-label">할 일:</span> {maskIds(result.action)}
+            <span className="finding-action-label">할 일:</span> {maskPersonal(result.action)}
           </p>
         )}
         {result.evidence.length > 0 && (

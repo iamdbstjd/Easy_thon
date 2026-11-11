@@ -6,13 +6,49 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 Level = Literal["red", "yellow", "green", "unknown"]
 OverallLevel = Literal["red", "yellow", "green"]
 Mode = Literal["live", "demo"]
+
+# ---------------------------------------------------------------------------
+# 입력 상한
+# 너무 큰 입력이 서버를 붙잡거나, 말이 안 되는 날짜(9999년 등)가 날짜 계산을 넘치게 하지 않도록 막는다.
+# AI가 읽은 결과도 같은 모델로 검사한다 (넘치는 값은 app/extract가 잘라 내거나 비운다).
+# ---------------------------------------------------------------------------
+
+MIN_YEAR, MAX_YEAR = 1900, 2100
+SHORT_MAX = 100  # 순위번호·동·호·층·시점 등 짧은 값
+NAME_MAX = 200  # 이름·등기목적·용도
+ADDRESS_MAX = 500
+TEXT_MAX = 2000  # 원문 한 항목·특약 한 개
+SOURCE_MAX = 5000  # 계약서 근거 원문 (특약 칸 전체가 들어올 수 있다)
+HOLDERS_MAX = 50
+ENTRIES_MAX = 500  # 갑구·을구 항목 수
+LINES_MAX = 100  # 건물 표시 줄·읽지 못한 부분·특약 개수
+CHECKLIST_MAX = 300
+MONEY_MAX = 10**15  # 원. 프론트엔드(JavaScript) 숫자로 정확히 다룰 수 있는 범위 안이다.
+
+
+def _year_in_range(value: dt.date) -> dt.date:
+    if not (MIN_YEAR <= value.year <= MAX_YEAR):
+        raise ValueError(f"{MIN_YEAR}~{MAX_YEAR}년 사이 날짜여야 해요")
+    return value
+
+
+BoundedDate = Annotated[dt.date, AfterValidator(_year_in_range)]
+BoundedDateTime = Annotated[dt.datetime, AfterValidator(_year_in_range)]
+# 음수 금액은 규칙 엔진이 '알 수 없음'으로 다룬다 (보증금·시세·권리 금액은 0원도). 여기서는 크기만 막는다.
+Won = Annotated[int, Field(ge=-MONEY_MAX, le=MONEY_MAX)]
+PageNo = Annotated[int, Field(ge=0, le=10**9)]
+ShortStr = Annotated[str, Field(max_length=SHORT_MAX)]
+NameStr = Annotated[str, Field(max_length=NAME_MAX)]
+AddressStr = Annotated[str, Field(max_length=ADDRESS_MAX)]
+TextStr = Annotated[str, Field(max_length=TEXT_MAX)]
+SourceStr = Annotated[str, Field(max_length=SOURCE_MAX)]
 
 
 class Model(BaseModel):
@@ -28,38 +64,38 @@ class Model(BaseModel):
 class Entry(Model):
     """갑구·을구의 한 항목."""
 
-    rank: str = Field(description="순위번호 (예: '3', '3-1')")
-    purpose: str = Field(description="등기목적 원문 (예: 소유권이전, 근저당권설정, 가압류)")
-    received_at: Optional[dt.date] = Field(default=None, description="접수일")
-    cause: Optional[str] = Field(default=None, description="등기원인 (예: 매매, 신탁, 임차권등기명령)")
-    holders: list[str] = Field(default_factory=list, description="권리자 이름 (역할어 제외)")
-    amount: Optional[int] = Field(default=None, description="채권최고액·전세금·임차보증금 (원)")
+    rank: ShortStr = Field(description="순위번호 (예: '3', '3-1')")
+    purpose: NameStr = Field(description="등기목적 원문 (예: 소유권이전, 근저당권설정, 가압류)")
+    received_at: Optional[BoundedDate] = Field(default=None, description="접수일")
+    cause: Optional[NameStr] = Field(default=None, description="등기원인 (예: 매매, 신탁, 임차권등기명령)")
+    holders: list[NameStr] = Field(default_factory=list, max_length=HOLDERS_MAX, description="권리자 이름 (역할어 제외)")
+    amount: Optional[Won] = Field(default=None, description="채권최고액·전세금·임차보증금 (원)")
     is_cancelled: bool = Field(default=False, description="말소 표시 여부")
-    page: Optional[int] = Field(default=None, description="페이지 번호")
-    source_text: str = Field(default="", description="원문 그대로")
+    page: Optional[PageNo] = Field(default=None, description="페이지 번호")
+    source_text: TextStr = Field(default="", description="원문 그대로")
 
 
 class RegistryUnit(Model):
     """전유부분 (집합건물의 내 호실)."""
 
-    dong: Optional[str] = None
-    ho: Optional[str] = None
-    floor: Optional[str] = None
-    area_m2: Optional[float] = None
+    dong: Optional[ShortStr] = None
+    ho: Optional[ShortStr] = None
+    floor: Optional[ShortStr] = None
+    area_m2: Optional[float] = Field(default=None, ge=0, le=1_000_000, allow_inf_nan=False)
 
 
 class RegistryExtract(Model):
     is_registry: bool = True
     registry_type: Optional[Literal["집합건물", "건물", "토지"]] = None
-    viewed_at: Optional[dt.datetime] = None
-    address_jibun: Optional[str] = None
-    address_road: Optional[str] = None
-    building_name: Optional[str] = None
+    viewed_at: Optional[BoundedDateTime] = None
+    address_jibun: Optional[AddressStr] = None
+    address_road: Optional[AddressStr] = None
+    building_name: Optional[NameStr] = None
     unit: RegistryUnit = Field(default_factory=RegistryUnit)
-    building_use_lines: list[str] = Field(default_factory=list)
-    gapgu: list[Entry] = Field(default_factory=list)
-    eulgu: list[Entry] = Field(default_factory=list)
-    unreadable: list[str] = Field(default_factory=list)
+    building_use_lines: list[TextStr] = Field(default_factory=list, max_length=LINES_MAX)
+    gapgu: list[Entry] = Field(default_factory=list, max_length=ENTRIES_MAX)
+    eulgu: list[Entry] = Field(default_factory=list, max_length=ENTRIES_MAX)
+    unreadable: list[TextStr] = Field(default_factory=list, max_length=LINES_MAX)
 
 
 # ---------------------------------------------------------------------------
@@ -68,33 +104,33 @@ class RegistryExtract(Model):
 
 
 class ContractUnit(Model):
-    dong: Optional[str] = None
-    ho: Optional[str] = None
+    dong: Optional[ShortStr] = None
+    ho: Optional[ShortStr] = None
 
 
 class ContractSources(Model):
     """주요 값의 근거 원문."""
 
-    landlord: Optional[str] = None
-    address: Optional[str] = None
-    deposit: Optional[str] = None
-    special_terms: Optional[str] = None
+    landlord: Optional[SourceStr] = None
+    address: Optional[SourceStr] = None
+    deposit: Optional[SourceStr] = None
+    special_terms: Optional[SourceStr] = None
 
 
 class ContractExtract(Model):
     is_contract: bool = True
-    landlord_names: list[str] = Field(default_factory=list)
-    agent_name: Optional[str] = None
-    address: Optional[str] = None
+    landlord_names: list[NameStr] = Field(default_factory=list, max_length=HOLDERS_MAX)
+    agent_name: Optional[NameStr] = None
+    address: Optional[AddressStr] = None
     unit: ContractUnit = Field(default_factory=ContractUnit)
     lease_type: Optional[Literal["전세", "월세"]] = None
-    deposit: Optional[int] = None
-    monthly_rent: Optional[int] = None
-    contract_date: Optional[dt.date] = None
-    balance_date: Optional[dt.date] = None
-    move_in_date: Optional[dt.date] = None
-    lease_end: Optional[dt.date] = None
-    special_terms: list[str] = Field(default_factory=list)
+    deposit: Optional[Won] = None
+    monthly_rent: Optional[Won] = None
+    contract_date: Optional[BoundedDate] = None
+    balance_date: Optional[BoundedDate] = None
+    move_in_date: Optional[BoundedDate] = None
+    lease_end: Optional[BoundedDate] = None
+    special_terms: list[TextStr] = Field(default_factory=list, max_length=LINES_MAX)
     sources: ContractSources = Field(default_factory=ContractSources)
 
 
@@ -104,27 +140,27 @@ class ContractExtract(Model):
 
 
 class BuildingRegister(Model):
-    main_use: Optional[str] = None
-    unit_use: Optional[str] = None
+    main_use: Optional[NameStr] = None
+    unit_use: Optional[NameStr] = None
     is_violating: Optional[bool] = None
     source: Literal["api", "pdf"] = "pdf"
-    source_text: Optional[str] = None
+    source_text: Optional[TextStr] = None
 
 
 class MarketPrice(Model):
-    price: Optional[int] = None
+    price: Optional[Won] = None
     method: Literal["same_building", "same_dong", "manual"] = "manual"
-    deals: int = 0
-    period: Optional[str] = None
+    deals: int = Field(default=0, ge=0, le=1_000_000)
+    period: Optional[ShortStr] = None
 
 
 class ManualInput(Model):
-    deposit: Optional[int] = None
-    monthly_rent: Optional[int] = None
-    contract_date: Optional[dt.date] = None
-    landlord_name: Optional[str] = None
-    prior_deposits: Optional[int] = None
-    market_price: Optional[int] = None
+    deposit: Optional[Won] = None
+    monthly_rent: Optional[Won] = None
+    contract_date: Optional[BoundedDate] = None
+    landlord_name: Optional[NameStr] = None
+    prior_deposits: Optional[Won] = None
+    market_price: Optional[Won] = None
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +174,7 @@ class CheckRequest(Model):
     manual: ManualInput = Field(default_factory=ManualInput)
     building: Optional[BuildingRegister] = None
     market: Optional[MarketPrice] = None
-    today: Optional[dt.date] = None  # 없으면 서버가 현재 한국 날짜로 채운다
+    today: Optional[BoundedDate] = None  # 없으면 서버가 현재 한국 날짜로 채운다
     mode: Mode = "live"
 
 
@@ -179,9 +215,9 @@ class Counts(Model):
 
 
 class ChecklistItem(Model):
-    when: str  # "계약 전" · "계약일" · "잔금일" · "입주일" · "입주 후"
-    date: Optional[dt.date] = None
-    title: str
+    when: ShortStr  # "계약 전" · "계약일" · "잔금일" · "입주일" · "입주 후"
+    date: Optional[BoundedDate] = None
+    title: AddressStr
 
 
 class ComparisonRow(Model):
@@ -241,8 +277,8 @@ class RecheckRequest(Model):
 
     registry: RegistryExtract  # 오늘 뗀 등기부
     contract: ContractExtract  # 계약서 (다시 올린 것)
-    baseline_viewed_at: Optional[dt.datetime] = None  # 계약 때 본 등기부 열람 일시 (같은 화면에서 이어 올 때만)
-    today: Optional[dt.date] = None  # 없으면 서버가 현재 한국 날짜로 채운다
+    baseline_viewed_at: Optional[BoundedDateTime] = None  # 계약 때 본 등기부 열람 일시 (같은 화면에서 이어 올 때만)
+    today: Optional[BoundedDate] = None  # 없으면 서버가 현재 한국 날짜로 채운다
     mode: Mode = "live"
 
 
@@ -297,7 +333,7 @@ class CompareRequest(Model):
 
     before: CheckRequest  # 수정 전 (방금 검사한 입력)
     after: CheckRequest  # 수정 후 (계약서만 바꾼 입력)
-    today: Optional[dt.date] = None  # 없으면 before.today, 그것도 없으면 현재 한국 날짜
+    today: Optional[BoundedDate] = None  # 없으면 before.today, 그것도 없으면 현재 한국 날짜
     mode: Mode = "live"
 
     @model_validator(mode="after")
@@ -325,7 +361,8 @@ class RuleDelta(Model):
     name: str
     before: Level
     after: Level
-    change: Literal["개선", "악화", "그대로"]
+    # 수정 후에 ⚪(확인 못 함)로 바뀌면 "개선"이 아니라 "확인 못 함"
+    change: Literal["개선", "악화", "그대로", "확인 못 함"]
     after_title: str = ""  # 수정 후에도 🔴·🟡이면 그 상황 한 줄
 
 
@@ -377,8 +414,8 @@ class HealthResponse(Model):
 class IcsRequest(Model):
     """/api/checklist.ics 입력."""
 
-    checklist: list[ChecklistItem]
-    address: Optional[str] = None
+    checklist: list[ChecklistItem] = Field(max_length=CHECKLIST_MAX)
+    address: Optional[AddressStr] = None
 
 
 ErrorCode = Literal[
@@ -387,7 +424,9 @@ ErrorCode = Literal[
     "LAND_REGISTRY",
     "NOT_CONTRACT",
     "AI_FAILED",
+    "BUSY",
     "NOT_FOUND",
+    "INVALID_REQUEST",
     "INTERNAL_ERROR",
 ]
 
@@ -395,6 +434,7 @@ ErrorCode = Literal[
 class ErrorDetail(Model):
     code: ErrorCode
     message: str
+    document: Optional[Literal["registry", "contract"]] = None  # 파일·문서 오류일 때 문제 파일
 
 
 class ErrorResponse(Model):

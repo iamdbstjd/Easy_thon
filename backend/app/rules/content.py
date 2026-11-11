@@ -6,11 +6,12 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Mapping, Optional
+import re
+from typing import Mapping, Optional, Sequence
 
 from app.schemas import AmendmentFix, ChecklistItem, Overall
 
-from .common import fmt_date
+from .common import fmt_date, mask_id_numbers
 
 # ---------------------------------------------------------------------------
 # 7.3 종합 판정
@@ -33,33 +34,67 @@ OVERALL_GREEN = (
     "큰 위험 신호 없음",
     "확인한 범위에서는 큰 위험 신호를 찾지 못했어요. 안전을 보장하는 것은 아니니 아래 할 일은 꼭 챙기세요.",
 )
+# 등기부에 읽지 못한 부분이 있으면 "큰 위험 신호 없음"이라고 말하지 않는다
+OVERALL_UNREADABLE = (
+    "확인 미완료",
+    "위험 신호는 찾지 못했지만, 등기부에서 읽지 못한 부분이 있어요({parts}). "
+    "그 부분이 잘 보이는 등기부를 다시 올려 검사하세요.",
+)
+UNREADABLE_EXTRA = " 등기부에서 읽지 못한 부분도 있어요({parts})."
 UNKNOWN_NOTE = "확인하지 못한 항목 {n}개"
+UNREADABLE_NOTE = "등기부에서 읽지 못한 부분 {n}곳"
+_UNREADABLE_SHOWN = 3  # 문구에 이름을 적는 개수
+_UNREADABLE_ITEM_CHARS = 40
 
 
-def build_overall(levels: Mapping[str, str]) -> Overall:
+def unreadable_parts(unreadable: Sequence[str]) -> list[str]:
+    """읽지 못한 부분 목록을 화면용으로 정리한다 (빈 값 빼기, 공백 정리, 등록번호 가리기)."""
+    parts = []
+    for item in unreadable:
+        text = re.sub(r"\s+", " ", mask_id_numbers(item or "")).strip()
+        if text:
+            parts.append(text)
+    return parts
+
+
+def unreadable_phrase(parts: Sequence[str]) -> str:
+    """문구에 넣을 읽지 못한 부분 이름: 앞의 3곳까지, 너무 길면 줄인다."""
+    shown = [p if len(p) <= _UNREADABLE_ITEM_CHARS else p[:_UNREADABLE_ITEM_CHARS] + "…" for p in parts[:_UNREADABLE_SHOWN]]
+    more = f" 외 {len(parts) - _UNREADABLE_SHOWN}곳" if len(parts) > _UNREADABLE_SHOWN else ""
+    return ", ".join(shown) + more
+
+
+def build_overall(levels: Mapping[str, str], unreadable: Sequence[str] = ()) -> Overall:
     """7.3 표를 위에서부터 보고 처음 맞는 줄을 쓴다. levels는 {규칙 ID: 등급}.
 
     {n}은 그 줄의 조건에 해당하는 규칙 수 (🔴 수, 🟡 수, 핵심 규칙 중 ⚪ 수).
     unknown_note는 ⚪ 전체 수다.
+    unreadable: 등기부에서 읽지 못한 부분. 있으면 🟢 대신 "확인 미완료"로 하고, 다른 배너에는 한 문장 덧붙인다.
     """
     red = sum(1 for lvl in levels.values() if lvl == "red")
     yellow = sum(1 for lvl in levels.values() if lvl == "yellow")
     unknown = sum(1 for lvl in levels.values() if lvl == "unknown")
     core_unknown = sum(1 for rid in CORE_RULES if levels.get(rid) == "unknown")
+    parts = unreadable_parts(unreadable)
     if red:
-        level, (title, message), n = "red", OVERALL_RED, red
+        level, row, n = "red", OVERALL_RED, red
     elif yellow:
-        level, (title, message), n = "yellow", OVERALL_YELLOW, yellow
+        level, row, n = "yellow", OVERALL_YELLOW, yellow
     elif core_unknown:
-        level, (title, message), n = "yellow", OVERALL_INCOMPLETE, core_unknown
+        level, row, n = "yellow", OVERALL_INCOMPLETE, core_unknown
+    elif parts:
+        level, row, n = "yellow", OVERALL_UNREADABLE, 0
     else:
-        level, (title, message), n = "green", OVERALL_GREEN, 0
-    return Overall(
-        level=level,
-        title=title,
-        message=message.format(n=n),
-        unknown_note=UNKNOWN_NOTE.format(n=unknown) if unknown else None,
-    )
+        level, row, n = "green", OVERALL_GREEN, 0
+    title, message = row
+    phrase = unreadable_phrase(parts)
+    text = message.format(n=n, parts=phrase)
+    if parts and row is not OVERALL_UNREADABLE:
+        text += UNREADABLE_EXTRA.format(parts=phrase)
+    notes = [UNKNOWN_NOTE.format(n=unknown)] if unknown else []
+    if parts:
+        notes.append(UNREADABLE_NOTE.format(n=len(parts)))
+    return Overall(level=level, title=title, message=text, unknown_note=", ".join(notes) or None)
 
 
 # ---------------------------------------------------------------------------

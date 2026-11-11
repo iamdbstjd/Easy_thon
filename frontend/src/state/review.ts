@@ -8,7 +8,7 @@ import {
   localInputToIso,
   numberToDigits,
 } from '../lib/format'
-import { maskIds } from '../lib/mask'
+import { maskPersonal } from '../lib/mask'
 
 /** 화면의 입력 칸. 금액은 숫자만 담은 문자열, 날짜는 "YYYY-MM-DD", 열람 일시는 "YYYY-MM-DDTHH:mm" */
 export interface ReviewForm {
@@ -48,7 +48,7 @@ export function formFromRequest(req: CheckRequest): ReviewForm {
   const r = req.registry
   const c = req.contract
   const m = req.manual
-  const shown = (v: string | null | undefined) => maskIds(v ?? '')
+  const shown = (v: string | null | undefined) => maskPersonal(v ?? '')
   return {
     regAddressJibun: shown(r.address_jibun),
     regAddressRoad: shown(r.address_road),

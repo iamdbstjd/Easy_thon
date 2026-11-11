@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import type { ReactNode } from 'react'
 
 /**
  * 파일 고르기 한 줄 (라벨 | 파일 이름 · 파일 고르기 · 빼기).
@@ -16,6 +17,7 @@ export function FilePicker({
   hint,
   onPick,
   onClear,
+  children,
 }: {
   label: string
   required: boolean
@@ -29,6 +31,8 @@ export function FilePicker({
   hint?: string
   onPick: (file: File) => void
   onClear: () => void
+  /** 파일 줄 아래에 덧붙이는 내용 (계약서 사진 가리기 등) */
+  children?: ReactNode
 }) {
   const id = useId()
   const labelId = `${id}-label`
@@ -85,6 +89,7 @@ export function FilePicker({
             {error}
           </p>
         )}
+        {children}
       </div>
     </div>
   )

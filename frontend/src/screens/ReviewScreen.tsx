@@ -12,7 +12,7 @@ import {
 import { MARKET_METHOD_LABEL } from '../content/labels'
 import { formatArea, formatDate, formatPeriod, formatWon, groupNumber } from '../lib/format'
 import { holderList } from '../lib/holders'
-import { maskIds } from '../lib/mask'
+import { maskPersonal } from '../lib/mask'
 import { useScreenFocus } from '../lib/useScreenFocus'
 import { formFromRequest, missingField, requestFromForm } from '../state/review'
 import type { ReviewForm } from '../state/review'
@@ -81,7 +81,7 @@ export function ReviewScreen({
             </p>
             <ul className="dot-list">
               {registry.unreadable.map((text, i) => (
-                <li key={i}>{maskIds(text)}</li>
+                <li key={i}>{maskPersonal(text)}</li>
               ))}
             </ul>
           </div>
@@ -92,7 +92,7 @@ export function ReviewScreen({
         <h2 id="review-registry">등기부</h2>
         <div className="rows">
           <ReadRow label="종류">{registry.registry_type ?? '읽지 못함'}</ReadRow>
-          {registry.building_name && <ReadRow label="건물 명칭">{registry.building_name}</ReadRow>}
+          {registry.building_name && <ReadRow label="건물 명칭">{maskPersonal(registry.building_name)}</ReadRow>}
           {floorAndArea && <ReadRow label="층·면적">{floorAndArea}</ReadRow>}
           <GrowingTextField label="소재지번" {...bind('regAddressJibun')} />
           <GrowingTextField label="도로명주소" {...bind('regAddressRoad')} />
@@ -103,7 +103,7 @@ export function ReviewScreen({
             {registry.building_use_lines.length > 0 ? (
               <ul className="row-lines">
                 {registry.building_use_lines.map((line, i) => (
-                  <li key={i}>{line}</li>
+                  <li key={i}>{maskPersonal(line)}</li>
                 ))}
               </ul>
             ) : (
@@ -133,7 +133,7 @@ export function ReviewScreen({
             <h2 id="review-contract">계약서</h2>
             <div className="rows">
               {contract.lease_type && <ReadRow label="계약 종류">{contract.lease_type}</ReadRow>}
-              {contract.agent_name && <ReadRow label="대리인">{maskIds(contract.agent_name)}</ReadRow>}
+              {contract.agent_name && <ReadRow label="대리인">{maskPersonal(contract.agent_name)}</ReadRow>}
               <GrowingTextField label="임대인" {...bind('conLandlords')} />
               <GrowingTextField label="소재지" {...bind('conAddress')} />
               <TextField label="동" narrow {...bind('conDong')} />
@@ -146,7 +146,7 @@ export function ReviewScreen({
                 {contract.special_terms.length > 0 ? (
                   <ol className="num-list">
                     {contract.special_terms.map((term, i) => (
-                      <li key={i}>{term}</li>
+                      <li key={i}>{maskPersonal(term)}</li>
                     ))}
                   </ol>
                 ) : (
@@ -267,11 +267,11 @@ function EntryTable({ entries, caption }: { entries: Entry[]; caption: string })
               <tr className={entry.is_cancelled ? 'entry-row entry-cancelled' : 'entry-row'}>
                 <td className="c-rank c-nowrap">{entry.rank}</td>
                 <td className="c-purpose">
-                  <span className="entry-purpose">{entry.purpose || '목적 없음'}</span>
+                  <span className="entry-purpose">{entry.purpose ? maskPersonal(entry.purpose) : '목적 없음'}</span>
                   {entry.is_cancelled && ' (말소)'}
                   {/* 원인은 목적에 이미 들어 있지 않을 때만 덧붙인다 ("소유권이전, 신탁" + "신탁" → 생략) */}
                   {entry.cause && !entry.purpose.includes(entry.cause) && (
-                    <span className="muted"> · {entry.cause}</span>
+                    <span className="muted"> · {maskPersonal(entry.cause)}</span>
                   )}
                 </td>
                 <td className="c-nowrap" data-label="접수일">

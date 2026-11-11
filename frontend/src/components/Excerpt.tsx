@@ -1,5 +1,5 @@
 import { keepTogether } from '../lib/keepTogether'
-import { maskIds } from '../lib/mask'
+import { maskPersonal } from '../lib/mask'
 
 /**
  * 문서에서 옮겨 온 부분: 1px 테두리 상자 + 출처 ("등기부 2쪽", "계약서", "시세" 등).
@@ -9,7 +9,7 @@ export function Excerpt({ caption, text }: { caption: string; text: string }) {
   return (
     <figure className="excerpt">
       <figcaption className="excerpt-caption">{caption}</figcaption>
-      <blockquote className="excerpt-text">{keepTogether(maskIds(text))}</blockquote>
+      <blockquote className="excerpt-text">{keepTogether(maskPersonal(text))}</blockquote>
     </figure>
   )
 }

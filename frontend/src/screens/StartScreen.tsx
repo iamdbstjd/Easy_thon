@@ -13,6 +13,7 @@ export function StartScreen({
   recheckDemoLoading,
   onCompareDemo,
   compareDemoLoading,
+  onPrivacy,
 }: {
   onUpload: () => void
   onDemo: (scenario: DemoScenario) => void
@@ -25,6 +26,8 @@ export function StartScreen({
   /** 수정 전·후 비교 예시 (S8) */
   onCompareDemo: () => void
   compareDemoLoading: boolean
+  /** 개인정보 처리 안내 */
+  onPrivacy: () => void
 }) {
   const titleRef = useScreenFocus<HTMLHeadingElement>()
 
@@ -85,7 +88,14 @@ export function StartScreen({
         />
       </section>
 
-      <p className="footnote">{START_NOTICE}</p>
+      <div className="footnote">
+        <p>{START_NOTICE}</p>
+        <p>
+          <button type="button" className="link" onClick={onPrivacy}>
+            개인정보 처리 안내
+          </button>
+        </p>
+      </div>
     </>
   )
 }

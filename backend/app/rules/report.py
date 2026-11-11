@@ -33,7 +33,7 @@ def build_report(req: CheckRequest) -> Report:
         mode=req.mode,
         generated_at=now_kst(),
         today=today,
-        overall=content.build_overall(levels),
+        overall=content.build_overall(levels, req.registry.unreadable),
         counts=counts,
         results=results,
         comparison=crosscheck.build_comparison(ctx, levels),

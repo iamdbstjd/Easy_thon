@@ -6,12 +6,14 @@ API 키 없이도 /api/health, /api/demo, /api/check, /api/checklist.ics는 동�
 
 import asyncio
 import datetime as dt
+import re
 import time
 import traceback
 import uuid
+import weakref
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Awaitable, Optional, TypeVar
+from typing import Awaitable, Callable, Optional, TypeVar
 
 from app import config
 
@@ -19,17 +21,17 @@ from app import config
 _ENV_KEYS_LOADED = config.load_env_file()
 
 from fastapi import FastAPI, File, Request, UploadFile  # noqa: E402
-from fastapi.exception_handlers import request_validation_exception_handler  # noqa: E402
 from fastapi.exceptions import RequestValidationError  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import Response  # noqa: E402
+from fastapi.responses import JSONResponse, Response  # noqa: E402
 from pydantic import BaseModel, ValidationError  # noqa: E402
 from starlette.concurrency import run_in_threadpool  # noqa: E402
 from starlette.datastructures import MutableHeaders  # noqa: E402
+from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa: E402
 from starlette.formparsers import MultiPartParser  # noqa: E402
 
-from app import extract, ics, privacy, uploads  # noqa: E402
-from app.errors import ApiError, api_error_handler, error_response  # noqa: E402
+from app import extract, ics, pdf_sandbox, privacy, uploads  # noqa: E402
+from app.errors import DOCUMENTS, ApiError, api_error_handler, api_error_response, error_response  # noqa: E402
 from app.rules import build_report  # noqa: E402
 from app.schemas import (  # noqa: E402
     CheckRequest,
@@ -60,7 +62,25 @@ UPLOAD_REQUEST_LIMITS = {
     EXTRACT_PATH: uploads.MAX_REQUEST_BYTES,
     EXTRACT_CONTRACT_PATH: uploads.MAX_SINGLE_FILE_REQUEST_BYTES,
 }
+# 그 밖의 본문(JSON) 상한. 화면이 보내는 검사 입력은 수십 KB다. 넘으면 413.
+JSON_REQUEST_LIMIT = 1024 * 1024
+BODY_METHODS = ("POST", "PUT", "PATCH", "DELETE")  # 본문을 미리 읽어 상한을 거는 메서드
+BODY_IDLE_SECONDS = 30.0  # 본문 조각 사이에 이만큼 아무것도 오지 않으면 끊는다 (408)
+JSON_BODY_SECONDS = 30.0  # JSON 본문 전체를 받는 시간 상한
+# 업로드는 자리를 잡은 채로 받으므로, 아주 느리게 보내는 연결이 자리를 오래 붙잡지 못하게 한다.
+# 유예 시간 뒤 평균 속도가 이보다 느리거나, 알려 준 길이를 마감 안에 다 받을 수 없는 속도면 끊는다.
+UPLOAD_MIN_BYTES_PER_SECOND = 16 * 1024
+UPLOAD_RATE_GRACE_SECONDS = 10.0
+# 서류 읽기는 두 단계로 자리를 잡는다. 기다리는 시간은 요청이 들어온 때부터 마감(85초)까지다.
+# - 업로드 자리: 본문을 읽기 전에 잡고, AI 자리를 잡으면 놓는다. 메모리에 올라가는 업로드 수를 묶는다.
+# - AI 자리: 파일 검사를 마친 뒤에 잡는다. 동시에 부르는 AI 호출 수(워커당)를 묶는다.
+# 메모리에 서류를 들고 있는 요청은 많아야 UPLOAD_SLOTS + AI_SLOTS개다.
+UPLOAD_SLOTS = 6
+AI_SLOTS = 4
 DISCONNECT_POLL_SECONDS = 0.5  # 추출 중 클라이언트 연결 끊김을 확인하는 간격
+MAX_VALIDATION_ERRORS = 20  # 422 응답에 담는 오류 수
+STARTED_AT = "started_at"  # scope["state"]에 넣는 요청 시작 시각 (이벤트 루프 시각)
+UPLOAD_SLOT = "release_upload_slot"  # scope["state"]에 넣는 업로드 자리 반납 함수
 
 # multipart 파일을 디스크 임시 파일로 넘기지 않고 메모리에 둔다.
 # /api/extract 본문은 RequestContextMiddleware가 MAX_REQUEST_BYTES까지만 읽으므로
@@ -94,18 +114,46 @@ class _ClientGone(Exception):
     """본문을 받는 중에 클라이언트가 연결을 끊었다."""
 
 
-async def _read_body_capped(scope: dict, receive, limit: int) -> Optional[bytes]:
-    """요청 본문을 limit 바이트까지만 메모리로 읽는다. 넘으면 그 자리에서 멈추고 None.
+class _SlowClient(Exception):
+    """본문이 너무 느리게 오거나 멈췄다."""
+
+
+async def _read_body_capped(
+    scope: dict,
+    receive,
+    limit: int,
+    *,
+    idle_seconds: Optional[float] = None,
+    total_seconds: Optional[float] = None,
+    min_rate: Optional[float] = None,
+) -> Optional[list[bytes]]:
+    """요청 본문을 limit 바이트까지만 메모리로 읽어 받은 조각 목록으로 돌려준다. 넘으면 그 자리에서 멈추고 None.
 
     Content-Length가 없는 chunked 요청도 받은 바이트를 세어 막으므로, 상한을 넘는 데이터는
-    버퍼에 쌓이지 않고 디스크로도 가지 않는다.
+    버퍼에 쌓이지 않고 디스크로도 가지 않는다. 조각을 이어 붙이지 않아 본문 크기만큼 더 쓰지 않는다.
+    조각 사이가 idle_seconds를 넘거나, 전체가 total_seconds를 넘으면 _SlowClient.
+    min_rate가 있으면 유예 시간 뒤 평균 속도가 그보다 느리거나, 지금 속도로는 알려 준 길이를
+    total_seconds 안에 다 받을 수 없을 때도 _SlowClient (자리를 붙잡은 채 느리게 보내는 연결을 일찍 끊는다).
     """
-    if _content_length(scope) > limit:
+    expected = _content_length(scope)
+    if expected > limit:
         return None
+    idle = BODY_IDLE_SECONDS if idle_seconds is None else idle_seconds
+    loop = asyncio.get_running_loop()
+    started = loop.time()
     chunks: list[bytes] = []
     size = 0
     while True:
-        message = await receive()
+        wait = idle
+        if total_seconds is not None:
+            wait = min(wait, started + total_seconds - loop.time())
+        if wait <= 0:
+            raise _SlowClient()
+        try:
+            async with asyncio.timeout(wait):
+                message = await receive()
+        except TimeoutError:
+            raise _SlowClient() from None
         if message["type"] == "http.disconnect":
             raise _ClientGone()
         chunk = message.get("body", b"")
@@ -114,21 +162,97 @@ async def _read_body_capped(scope: dict, receive, limit: int) -> Optional[bytes]
             return None
         chunks.append(chunk)
         if not message.get("more_body", False):
-            return b"".join(chunks)
+            return chunks
+        elapsed = loop.time() - started
+        if min_rate is not None and elapsed > UPLOAD_RATE_GRACE_SECONDS:
+            too_slow = size < min_rate * elapsed
+            cannot_finish = (
+                total_seconds is not None and 0 < size < expected and elapsed * expected / size > total_seconds
+            )
+            if too_slow or cannot_finish:
+                raise _SlowClient()
 
 
-def _replay_body(body: bytes, receive):
-    """미리 읽은 본문을 한 번에 넘기고, 그다음부터는 원래 receive를 쓴다 (연결 끊김 감지용)."""
-    pending = True
+def _replay_body(chunks: list[bytes], receive):
+    """미리 읽은 본문 조각을 차례로 넘기고, 그다음부터는 원래 receive를 쓴다 (연결 끊김 감지용).
+
+    넘긴 조각은 들고 있지 않는다. 업로드 본문(최대 21MB)이 요청이 끝날 때까지 메모리에 남지 않게 한다.
+    """
+    pending = list(reversed(chunks))
+    chunks.clear()
 
     async def replay():
-        nonlocal pending
         if pending:
-            pending = False
-            return {"type": "http.request", "body": body, "more_body": False}
+            return {"type": "http.request", "body": pending.pop(), "more_body": bool(pending)}
         return await receive()
 
     return replay
+
+
+# 이벤트 루프마다 하나씩 (테스트는 요청마다 루프가 다를 수 있다)
+_slot_table: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Semaphore]]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _slots(kind: str, size: int) -> asyncio.Semaphore:
+    table = _slot_table.setdefault(asyncio.get_running_loop(), {})
+    if kind not in table:
+        table[kind] = asyncio.Semaphore(size)
+    return table[kind]
+
+
+def upload_slots() -> asyncio.Semaphore:
+    return _slots("upload", UPLOAD_SLOTS)
+
+
+def ai_slots() -> asyncio.Semaphore:
+    return _slots("ai", AI_SLOTS)
+
+
+def _budget_left(started_at: Optional[float]) -> float:
+    """요청이 들어온 때부터 잰 마감까지 남은 초."""
+    budget = extract.deadline_seconds()
+    if started_at is None:
+        return budget
+    return budget - (asyncio.get_running_loop().time() - started_at)
+
+
+async def _wait_for_slot(slots: asyncio.Semaphore, seconds: float, kind: str) -> bool:
+    """자리를 기다린다. seconds 안에 못 잡으면 False. 자리가 비어 있으면 seconds가 0 이하여도 바로 잡는다."""
+    started = time.perf_counter()
+    try:
+        async with asyncio.timeout(max(seconds, 0.0)):
+            await slots.acquire()
+    except TimeoutError:
+        logger.info("extract busy slot=%s waited=%.1fs", kind, time.perf_counter() - started)
+        return False
+    waited = time.perf_counter() - started
+    if waited >= 0.5:
+        logger.info("extract queued slot=%s waited=%.1fs", kind, waited)
+    return True
+
+
+def _releaser(slots: asyncio.Semaphore):
+    """자리를 한 번만 반납하는 함수 (라우트와 미들웨어가 모두 불러도 된다)."""
+    held = [slots]
+
+    def release() -> None:
+        if held:
+            held.pop().release()
+
+    return release
+
+
+def request_started_at(request: Request) -> Optional[float]:
+    """미들웨어가 기록한 요청 시작 시각 (이벤트 루프 시각). 없으면 None."""
+    return getattr(request.state, STARTED_AT, None)
+
+
+def release_upload_slot(request: Request) -> None:
+    release = getattr(request.state, UPLOAD_SLOT, None)
+    if release is not None:
+        release()
 
 
 def _log_unhandled(exc: Exception) -> None:
@@ -138,8 +262,11 @@ def _log_unhandled(exc: Exception) -> None:
     logger.error("unhandled %s at %s", type(exc).__name__, where or "?")
 
 
+_CLOSE = {"Connection": "close"}  # 다 읽지 않은 본문이 남은 채로 답할 때는 연결을 닫는다
+
+
 class RequestContextMiddleware:
-    """요청 ID(X-Request-ID), 상태·시간 로그, /api/extract 본문 크기 상한, 처리되지 않은 예외 → 500."""
+    """요청 ID(X-Request-ID), 상태·시간 로그, 본문 크기·시간 상한, 업로드 자리, 처리되지 않은 예외 → 500."""
 
     def __init__(self, app):
         self.app = app
@@ -151,7 +278,10 @@ class RequestContextMiddleware:
         request_id = uuid.uuid4().hex[:12]
         token = config.request_id_var.set(request_id)
         started = time.perf_counter()
+        loop = asyncio.get_running_loop()
+        started_at = scope.setdefault("state", {})[STARTED_AT] = loop.time()
         state = {"status": 500, "started": False}
+        release_upload = None
 
         async def send_with_id(message):
             if message["type"] == "http.response.start":
@@ -160,23 +290,47 @@ class RequestContextMiddleware:
             await send(message)
 
         try:
-            limit = UPLOAD_REQUEST_LIMITS.get(scope["path"])
-            if limit is not None and scope["method"] == "POST":
-                body = await _read_body_capped(scope, receive, limit)
-                if body is None:  # 상한을 넘었다. 나머지는 읽지 않고 바로 거절한다.
-                    logger.info("error code=UNSUPPORTED_FILE status=400 reason=request_too_large")
-                    await error_response("UNSUPPORTED_FILE")(scope, receive, send_with_id)
+            upload = scope["method"] == "POST" and scope["path"] in UPLOAD_REQUEST_LIMITS
+            if upload or scope["method"] in BODY_METHODS:
+                limit = UPLOAD_REQUEST_LIMITS[scope["path"]] if upload else JSON_REQUEST_LIMIT
+                body = None
+                if _content_length(scope) > limit:
+                    pass  # 알려 준 길이가 이미 상한을 넘는다. 줄을 세우거나 읽지 않고 바로 거절한다.
+                elif upload:
+                    # 본문을 읽기 전에 업로드 자리를 잡는다. 동시에 메모리에 올라가는 업로드 수가 묶인다.
+                    slots = upload_slots()
+                    if not await _wait_for_slot(slots, _budget_left(started_at), "upload"):
+                        # 본문을 읽지 않았으므로 연결을 닫는다
+                        await api_error_response(ApiError.busy("upload"), _CLOSE)(scope, receive, send_with_id)
+                        return
+                    release_upload = scope["state"][UPLOAD_SLOT] = _releaser(slots)
+                    body = await _read_body_capped(
+                        scope, receive, limit, total_seconds=_budget_left(started_at),
+                        min_rate=UPLOAD_MIN_BYTES_PER_SECOND,
+                    )
+                else:
+                    body = await _read_body_capped(scope, receive, limit, total_seconds=JSON_BODY_SECONDS)
+                if body is None:  # 상한을 넘었다. 나머지는 읽지 않고 거절하고 연결을 닫는다.
+                    code, status = ("UNSUPPORTED_FILE", 400) if upload else ("INVALID_REQUEST", 413)
+                    logger.info("error code=%s status=%d reason=request_too_large", code, status)
+                    await error_response(code, status, headers=_CLOSE)(scope, receive, send_with_id)
                     return
                 receive = _replay_body(body, receive)
+                del body
             await self.app(scope, receive, send_with_id)
         except _ClientGone:
             state["status"] = 499  # 업로드 중에 연결이 끊겼다. 보낼 곳이 없으므로 응답하지 않는다.
+        except _SlowClient:
+            logger.info("error code=INVALID_REQUEST status=408 reason=slow_body")
+            await error_response("INVALID_REQUEST", 408, headers=_CLOSE)(scope, receive, send_with_id)
         except Exception as exc:
             _log_unhandled(exc)
             if state["started"]:
                 raise
             await error_response("INTERNAL_ERROR")(scope, receive, send_with_id)
         finally:
+            if release_upload is not None:
+                release_upload()  # 라우트가 이미 놓았으면 아무것도 하지 않는다
             took_ms = (time.perf_counter() - started) * 1000
             logger.info("%s %s -> %s (%.0f ms)", scope["method"], scope["path"], state["status"], took_ms)
             config.request_id_var.reset(token)
@@ -191,12 +345,21 @@ class RequestContextMiddleware:
 async def lifespan(app: FastAPI):
     if _ENV_KEYS_LOADED:
         logger.info("loaded from .env: %s", ", ".join(_ENV_KEYS_LOADED))  # 키 이름만 남긴다
+    ai = extract.describe_ai()
     logger.info(
-        "startup ai_ready=%s public_api_ready=%s extract_deadline=%gs",
+        "startup ai_ready=%s provider=%s model=%s effort=%s public_api_ready=%s extract_deadline=%gs "
+        "upload_slots=%d ai_slots=%d",
         extract.has_credentials(),
+        ai["provider"],
+        ai["model"],
+        ai["effort"],
         False,
         extract.deadline_seconds(),
+        UPLOAD_SLOTS,
+        AI_SLOTS,
     )
+    # PDF 검사용 자식 프로세스가 이 컴퓨터에서 도는지 확인한다 (안 되면 같은 프로세스에서 검사한다)
+    await run_in_threadpool(pdf_sandbox.self_test)
     yield
     await extract.aclose_client()
 
@@ -218,16 +381,47 @@ app.add_middleware(  # 가장 바깥: 오류 응답에도 CORS 헤더가 붙는�
 app.add_exception_handler(ApiError, api_error_handler)
 
 
+_FIELD_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+
+
+def _safe_loc(loc) -> list:
+    """오류 위치에서 필드 이름·번호만 남긴다. 입력에서 온 키(정의되지 않은 필드 이름 등)는 "?"로 바꾼다."""
+    return [p if isinstance(p, int) or (isinstance(p, str) and _FIELD_NAME.fullmatch(p)) else "?" for p in loc]
+
+
 @app.exception_handler(RequestValidationError)
 async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    errors = exc.errors()
     if request.url.path in UPLOAD_REQUEST_LIMITS:
-        # 파일이 빠졌거나 파일이 아닌 값이 왔다
-        logger.info("error code=UNSUPPORTED_FILE status=400 reason=form_invalid")
+        # 파일이 빠졌거나 파일이 아닌 값이 왔다. 어느 칸인지 알면 함께 알린다.
+        loc = tuple(errors[0].get("loc", ())) if errors else ()
+        document = loc[1] if len(loc) >= 2 and loc[0] == "body" and loc[1] in DOCUMENTS else None
+        logger.info("error code=UNSUPPORTED_FILE status=400 reason=form_invalid document=%s", document or "-")
+        return error_response("UNSUPPORTED_FILE", document=document)
+    # 그 밖(/api/check 등)은 422와 detail 목록. 입력값(input)은 돌려주지 않는다:
+    # 큰 입력을 그대로 되돌리면 느리고, 이름·주소가 다시 나간다. 위치·문구·종류만, 앞의 몇 개만 담는다.
+    detail = [
+        {
+            "loc": _safe_loc(err.get("loc", ())),
+            "msg": privacy.mask_text(str(err.get("msg", "")))[:200],
+            "type": str(err.get("type", "")),
+        }
+        for err in errors[:MAX_VALIDATION_ERRORS]
+    ]
+    locs = [".".join(str(p) for p in item["loc"]) for item in detail[:5]]
+    logger.info("request invalid path=%s errors=%d at=%s", request.url.path, len(errors), locs)
+    return JSONResponse(status_code=422, content={"detail": detail})
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_error_handler(request: Request, exc: StarletteHTTPException):
+    """Starlette·FastAPI의 HTTP 오류(없는 경로, 메서드, multipart 해석 실패 등)도 공통 오류 형식으로 보낸다."""
+    if request.url.path in UPLOAD_REQUEST_LIMITS and exc.status_code == 400:
+        # multipart 해석 실패 (boundary 없음, 조각이 너무 많거나 큼 등)
+        logger.info("error code=UNSUPPORTED_FILE status=400 reason=multipart_invalid")
         return error_response("UNSUPPORTED_FILE")
-    # 그 밖(/api/check 등)은 FastAPI 기본 형식(422, detail 목록). 로그에는 위치만 남긴다.
-    locs = [".".join(str(p) for p in err.get("loc", ())) for err in exc.errors()[:5]]
-    logger.info("request invalid path=%s errors=%d at=%s", request.url.path, len(exc.errors()), locs)
-    return await request_validation_exception_handler(request, exc)
+    logger.info("error code=INVALID_REQUEST status=%d reason=http_%d", exc.status_code, exc.status_code)
+    return error_response("INVALID_REQUEST", exc.status_code, headers=getattr(exc, "headers", None))
 
 
 _ERROR_DOC = {"model": ErrorResponse}
@@ -263,9 +457,35 @@ async def _cancel_if_client_leaves(request: Request, work: Awaitable[T]) -> T:
         watcher.cancel()
 
 
+async def _extract_with_ai_slot(request: Request, make_work: Callable[[], Awaitable[T]]) -> T:
+    """AI 자리를 잡고 추출한다. 자리를 잡으면 업로드 자리는 다음 요청에 넘긴다.
+
+    자리는 요청이 들어온 때부터 마감까지 기다리고, 그래도 없으면 BUSY(503).
+    클라이언트가 떠나면 기다리기와 AI 호출을 모두 취소한다.
+    """
+    extract.get_client()  # 키가 없으면 줄을 서지 않고 바로 503
+    started_at = request_started_at(request)
+
+    async def run() -> T:
+        slots = ai_slots()
+        if not await _wait_for_slot(slots, _budget_left(started_at), "ai"):
+            raise ApiError.busy("ai")
+        try:
+            release_upload_slot(request)
+            return await make_work()
+        finally:
+            slots.release()
+
+    return await _cancel_if_client_leaves(request, run())
+
+
 async def _read_upload(upload: UploadFile) -> bytes:
     # 상한 + 1바이트까지만 읽는다. 넘으면 uploads 검사에서 거절된다.
-    return await upload.read(uploads.MAX_UPLOAD_BYTES + 1)
+    # 읽은 뒤 바로 닫아 multipart 버퍼(메모리)를 AI 호출 전에 놓는다.
+    try:
+        return await upload.read(uploads.MAX_UPLOAD_BYTES + 1)
+    finally:
+        await upload.close()
 
 
 def _is_blank(upload: UploadFile) -> bool:
@@ -291,7 +511,10 @@ async def extract_route(
     contract_doc = None
     if contract is not None and not _is_blank(contract):
         contract_doc = await run_in_threadpool(uploads.validate_contract, await _read_upload(contract))
-    result = await _cancel_if_client_leaves(request, extract.extract_documents(registry_doc, contract_doc))
+    started_at = request_started_at(request)
+    result = await _extract_with_ai_slot(
+        request, lambda: extract.extract_documents(registry_doc, contract_doc, started_at=started_at)
+    )
     return privacy.mask_resident_ids(result)
 
 
@@ -306,7 +529,10 @@ async def extract_contract_route(
 ) -> ContractExtract:
     """수정된 계약서 하나만 읽는다. 검사·호출·마감·오류·주민등록번호 가림은 /api/extract와 같다."""
     contract_doc = await run_in_threadpool(uploads.validate_contract, await _read_upload(contract))
-    result = await _cancel_if_client_leaves(request, extract.extract_contract_only(contract_doc))
+    started_at = request_started_at(request)
+    result = await _extract_with_ai_slot(
+        request, lambda: extract.extract_contract_only(contract_doc, started_at=started_at)
+    )
     return privacy.mask_resident_ids(result)
 
 
@@ -324,12 +550,15 @@ def fill_public_data(req: CheckRequest) -> CheckRequest:
 
 @app.post("/api/check", response_model=Report)
 def check_route(req: CheckRequest) -> Report:
-    """AI를 부르지 않고 규칙 엔진으로 리포트를 만든다. today가 없으면 현재 한국 날짜를 쓴다."""
+    """AI를 부르지 않고 규칙 엔진으로 리포트를 만든다. today가 없으면 현재 한국 날짜를 쓴다.
+
+    응답의 주민등록번호·전화번호 모양은 가린다 (근거 원문·요청서에 입력이 그대로 인용될 수 있다).
+    """
     if req.today is None:
         req = req.model_copy(update={"today": today_kst()})
     if req.mode == "live" and (req.building is None or req.market is None):
         req = fill_public_data(req)  # 데모 모드에서는 외부 API를 부르지 않는다
-    return build_report(req)
+    return privacy.mask_resident_ids(build_report(req))
 
 
 def build_recheck(req: RecheckRequest) -> RecheckReport:

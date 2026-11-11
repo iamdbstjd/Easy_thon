@@ -1,6 +1,6 @@
 import type { Level } from '../api/types'
 import { COUNT_LABEL } from '../content/labels'
-import { maskIds } from '../lib/mask'
+import { maskPersonal } from '../lib/mask'
 
 /**
  * 표의 결과·판정 칸.
@@ -8,7 +8,7 @@ import { maskIds } from '../lib/mask'
  */
 export function ResultText({ level, note }: { level: Level; note: string }) {
   const word = COUNT_LABEL[level]
-  const text = maskIds(note.trim())
+  const text = maskPersonal(note.trim())
   if (level === 'red' || level === 'yellow') {
     return (
       <>

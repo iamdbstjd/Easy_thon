@@ -19,12 +19,12 @@ from .engine import (
     HO_MISSING,
     Ctx,
     contract_address_text,
-    current_ownership,
     deposit_of,
     has_trust,
     landlord_of,
     market_of,
     message_address,
+    ownership,
     protective_terms,
     registry_address_text,
     senior_claims,
@@ -51,7 +51,7 @@ def _missing_contract(ctx: Ctx) -> Optional[str]:
 
 
 def _owners(ctx: Ctx) -> Optional[str]:
-    own = current_ownership(ctx.gapgu) if ctx.gapgu else None
+    own = ownership(ctx) if ctx.gapgu else None
     return ", ".join(own.owners) if own and own.owners else None
 
 
@@ -83,7 +83,10 @@ def _address_row(ctx: Ctx, level: str) -> Cells:
 
 def _deposit_row(ctx: Ctx, level: str) -> Cells:
     deposit = deposit_of(ctx)
-    if deposit is None:
+    c = ctx.contract
+    if deposit is None and c is not None and c.deposit is not None:  # 0 이하라 쓰지 못한 값도 적힌 그대로 보여 준다
+        contract = fmt_money(c.deposit)
+    elif deposit is None:
         contract = _missing_contract(ctx)
     else:
         contract = fmt_money(deposit.amount) + (MANUAL_MARK if deposit.evidence.doc == "manual" else "")
@@ -108,7 +111,7 @@ def _date_row(ctx: Ctx, level: str) -> Cells:
         contract = fmt_date(ctx.manual.contract_date) + MANUAL_MARK
     else:
         contract = _missing_contract(ctx)
-    own = current_ownership(ctx.gapgu) if ctx.gapgu else None
+    own = ownership(ctx) if ctx.gapgu else None
     received = own.entry.received_at if own else None
     if received is None:
         return contract, NOT_CHECKED, NOT_CHECKED if level == "unknown" else _FALLBACK_NOTE[level]
@@ -191,7 +194,7 @@ def _landlord_fix(ctx: Ctx, level: str) -> Optional[AmendmentFix]:
     current = ", ".join(landlord.names) if landlord and not landlord.manual else NOT_IN_CONTRACT
     if level == "yellow":
         proposed, reason = f"공동 소유자({owners}) 모두의 동의서 첨부", "공동소유"
-    elif has_trust(current_ownership(ctx.gapgu).entry):
+    elif has_trust(ownership(ctx).entry):
         proposed = f"{owners} 명의로 계약하거나 {owners}의 임대 동의서 첨부"
         reason = "등기부상 소유자는 신탁회사"
     elif c is not None and (c.agent_name or "").strip():

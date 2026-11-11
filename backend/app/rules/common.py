@@ -11,6 +11,8 @@ from fractions import Fraction
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
+from app.privacy import RESIDENT_ID
+
 KST = ZoneInfo("Asia/Seoul")
 
 # ---------------------------------------------------------------------------
@@ -29,10 +31,16 @@ def today_kst() -> dt.date:
 
 
 def to_kst(value: dt.datetime) -> dt.datetime:
-    """한국 시각으로 바꾼다. 시간대가 없으면 한국 시각으로 본다."""
+    """한국 시각으로 바꾼다. 시간대가 없으면 한국 시각으로 본다.
+
+    서기 1년 초·9999년 말처럼 바꾸면 표현 범위를 넘는 값은 적힌 시각을 그대로 한국 시각으로 본다.
+    """
     if value.tzinfo is None or value.utcoffset() is None:
         return value.replace(tzinfo=KST)
-    return value.astimezone(KST)
+    try:
+        return value.astimezone(KST)
+    except (OverflowError, ValueError):
+        return value.replace(tzinfo=KST)
 
 
 def fmt_date(value: dt.date) -> str:
@@ -67,10 +75,9 @@ def compact(text: Optional[str]) -> str:
 _COMPANY_MARKS = ("(주)", "（주）", "㈜", "주식회사", "유한회사", "(유)", "（유）")
 # 이름에 잘못 붙어 올 수 있는 역할어
 ROLE_WORDS = ("근저당권자", "수탁자", "소유자", "공유자", "채권자", "임대인", "임차인")
-# 주민·법인등록번호 형식 (######-#######). 숫자 대신 *·x·○·● 등으로 가린 것도 포함한다.
+# 주민·법인등록번호 형식 (######-#######, 가린 것 포함). 응답 가리기와 같은 형식을 쓴다.
 # 이름 비교, 화면용 이름, 근거 원문 가리기에 모두 이 형식을 쓴다
-_ID_CHAR = r"[0-9*＊xX○●•]"
-_ID_NUMBER = re.compile(rf"(?<![0-9]){_ID_CHAR}{{6}}\s*-\s*{_ID_CHAR}{{7}}")
+_ID_NUMBER = RESIDENT_ID
 _ROLE_PREFIX = re.compile(r"^(?:" + "|".join(ROLE_WORDS) + r")\s*")
 ID_MASK = "******-*******"
 
@@ -189,7 +196,8 @@ Floor = tuple[bool, int]  # (지하 여부, 층 번호)
 _UNIT_BASEMENT = re.compile(r"^제?(?:지하|지|비|[Bb])제?(\d+)")
 # 용도 줄 안의 지하 표시. "지"·"비"는 앞이 한글이 아닐 때만 ("대지", "설비"는 지하가 아니다)
 _LINE_BASEMENT = r"(?:지하|(?<![가-힣])[지비]|(?<![A-Za-z])[Bb])"
-_FLOOR_TOKEN = re.compile(r"\d+층|(?<![A-Za-z])[Bb]\d+")
+# 숫자 덩어리의 첫 글자에서만 맞춰 본다 (긴 숫자열에서 느려지지 않게)
+_FLOOR_TOKEN = re.compile(r"(?<!\d)\d+층|(?<![A-Za-z])[Bb]\d+")
 
 
 def parse_floor(text: Optional[str]) -> Optional[Floor]:
@@ -274,15 +282,24 @@ class AddressCore:
         return f"{self.name} {self.number}"
 
 
+# 주소로 읽는 최대 길이. 실제 주소는 이보다 훨씬 짧다. 더 긴 값은 주소로 읽지 않는다 (검사가 느려지지 않게)
+ADDRESS_MAX_CHARS = 500
+
 _HYPHENS = re.compile(r"[‐‑‒–—－﹣−]")
-_JIBUN_RE = re.compile(r"([가-힣][가-힣0-9]*(?:동|리|가))\s*(산\s*)?(\d+)(?:\s*-\s*(\d+))?(?!\d)")
-_ROAD_RE = re.compile(r"([가-힣][가-힣0-9·.]*(?:로|길))\s*(?:지하\s*)?(\d+)(?:\s*-\s*(\d+))?(?!\d)")
+# 이름은 낱말 첫 글자에서만 시작한다 (긴 글자열에서 시작점마다 다시 훑지 않게)
+_JIBUN_RE = re.compile(r"(?<![가-힣0-9])([가-힣][가-힣0-9]*(?:동|리|가))\s*(산\s*)?(\d+)(?:\s*-\s*(\d+))?(?!\d)")
+_ROAD_RE = re.compile(r"(?<![가-힣0-9·.])([가-힣][가-힣0-9·.]*(?:로|길))\s*(?:지하\s*)?(\d+)(?:\s*-\s*(\d+))?(?!\d)")
 _LOT_RE = re.compile(r"(산)?(\d+)(?:-(\d+))?")
+
+
+def address_too_long(text: Optional[str]) -> bool:
+    """주소로 보기에는 너무 긴 값인지."""
+    return len(text or "") > ADDRESS_MAX_CHARS
 
 
 def tidy_address(text: Optional[str]) -> str:
     """비교 전 정리: 공백을 하나로, "번지"와 숫자 앞 "제"를 지운다."""
-    t = _HYPHENS.sub("-", text or "")
+    t = _WS.sub(" ", _HYPHENS.sub("-", text or ""))  # 공백부터 하나로 줄여 아래 정규식이 길게 되짚지 않게
     t = re.sub(r"\s*번지", "", t)
     t = re.sub(r"제\s*(?=\d)", "", t)
     return _WS.sub(" ", t).strip()
@@ -290,6 +307,8 @@ def tidy_address(text: Optional[str]) -> str:
 
 def jibun_core(address: Optional[str]) -> Optional[AddressCore]:
     """"경기도 용인시 수지구 죽전동 123-4" → 죽전동 123-4. 못 찾으면 마지막 두 낱말."""
+    if address_too_long(address):
+        return None
     t = tidy_address(address)
     if not t:
         return None
@@ -305,6 +324,8 @@ def jibun_core(address: Optional[str]) -> Optional[AddressCore]:
 
 def road_core(address: Optional[str]) -> Optional[AddressCore]:
     """"경기도 용인시 수지구 포은대로 123" → 포은대로 123."""
+    if address_too_long(address):
+        return None
     m = _ROAD_RE.search(tidy_address(address))
     if not m:
         return None
@@ -314,6 +335,8 @@ def road_core(address: Optional[str]) -> Optional[AddressCore]:
 
 def address_has_core(address: Optional[str], core: AddressCore) -> bool:
     """주소에 지번·도로명 핵심이 그대로 있는지. "123-4"는 "123-45"와 맞지 않는다."""
+    if address_too_long(address) or address_too_long(core.text):
+        return False
     pattern = re.escape(compact(core.name)) + r"\s*"
     lot = _LOT_RE.fullmatch(compact(core.number))
     if lot:
@@ -334,8 +357,9 @@ def address_has_core(address: Optional[str], core: AddressCore) -> bool:
 
 # 주소 안의 호수: "302호", "제302호", "빌라302호", "지하102호", "B102호", "비102호", "302-1호".
 # "지"·"비"는 앞이 한글이 아닐 때만 지하 표시로 본다 ("○○빌리지 302호"는 지하가 아니다).
+# 번호는 숫자 덩어리의 첫 글자에서만 시작한다 (긴 숫자열에서 느려지지 않게).
 _HO_IN_ADDR = re.compile(
-    r"(?:제\s*)?(?P<mark>지하\s*|(?<![가-힣])[지비]|(?<![A-Za-z])[Bb])?(?:제\s*)?(?P<num>\d+(?:-\d+)?)\s*호"
+    r"(?:제\s*)?(?P<mark>지하\s*|(?<![가-힣])[지비]|(?<![A-Za-z])[Bb])?(?:제\s*)?(?<!\d)(?P<num>\d+(?:-\d+)?)\s*호"
 )
 # 호수 바로 앞(또는 주소 끝)의 건물 동: 숫자, 영문 한 글자, 한글 한 글자("가동").
 # 한글은 앞이 한글이 아닐 때만 인정해 "죽전동" 같은 법정동 이름을 건물 동으로 읽지 않는다.
@@ -374,7 +398,9 @@ def unit_in_address(address: Optional[str]) -> tuple[Optional[str], Optional[str
     "…빌라302호" → (None, "302호"), "…101동302호" → ("101동", "302호"), "…가동 지하102호" → ("가동", "지하102호").
     호수 바로 앞에 지하층이 적혀 있으면 지하 호수로 본다: "…지하1층 102호" → (None, "지하102호").
     """
-    text = address or ""
+    if address_too_long(address):
+        return None, None
+    text = _WS.sub(" ", address or "")  # 공백을 하나로 줄여 둔다 (긴 공백에서 느려지지 않게)
     matches = list(_HO_IN_ADDR.finditer(text))
     last = matches[-1] if matches else None
     ho = None

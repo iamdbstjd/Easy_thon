@@ -335,13 +335,16 @@ export interface RequestFulfillment {
   note: string
 }
 
+export type RuleChange = '개선' | '악화' | '그대로' | '확인 못 함'
+
 /** 규칙 하나의 수정 전·후 등급 */
 export interface RuleDelta {
   id: string
   name: string
   before: Level
   after: Level
-  change: '개선' | '악화' | '그대로'
+  /** 확인 못 함: 수정 후 등급을 판단하지 못함 (개선으로 세지 않는다) */
+  change: RuleChange
   /** 수정 후에도 🔴·🟡이면 그 상황 한 줄 */
   after_title: string
 }
@@ -405,12 +408,17 @@ export type ErrorCode =
   | 'LAND_REGISTRY'
   | 'NOT_CONTRACT'
   | 'AI_FAILED'
+  /** 503: 서류를 읽는 요청이 몰려 자리를 잡지 못했다 (/api/extract·/api/extract/contract). 다시 시도하면 된다 */
+  | 'BUSY'
   | 'NOT_FOUND'
+  | 'INVALID_REQUEST'
   | 'INTERNAL_ERROR'
 
 export interface ErrorDetail {
   code: ErrorCode
   message: string
+  /** 파일·문서 오류일 때 어느 서류 때문인지 */
+  document?: 'registry' | 'contract'
 }
 
 export interface ErrorResponse {

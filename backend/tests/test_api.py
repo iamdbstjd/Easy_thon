@@ -191,9 +191,19 @@ def registry_file(data=None, name="registry.pdf", content_type="application/pdf"
     return {"registry": (name, make_pdf(2) if data is None else data, content_type)}
 
 
-def assert_error(response, status, code):
+ANY = object()
+
+
+def assert_error(response, status, code, document=ANY):
+    """공통 오류 형식. document를 주면 문제 파일("registry"·"contract", 없으면 None)도 확인한다."""
     assert response.status_code == status, response.text
-    assert response.json() == {"error": {"code": code, "message": ERROR_MESSAGES[code]}}
+    body = response.json()
+    assert set(body) == {"error"}
+    detail = dict(body["error"])
+    got_document = detail.pop("document", None)
+    assert detail == {"code": code, "message": ERROR_MESSAGES[code]}
+    if document is not ANY:
+        assert got_document == document
 
 
 @pytest.fixture(autouse=True)
@@ -276,8 +286,6 @@ def test_mask_text_hides_resident_ids(text, expected):
     [
         "2026-11-14",
         "2026-11-14T09:12:41+09:00",
-        "010-1234-5678",
-        "031-123-4567",
         "경기도 용인시 수지구 죽전동 123-4",
         "산12-3",
         "고유번호 1234-2015-001234",
@@ -342,8 +350,8 @@ def test_extract_response_masks_ids_in_every_field(client, monkeypatch):
     assert reg["unreadable"] == ["2쪽 ******-******* 옆 글자가 흐림"]
     assert con["landlord_names"] == ["김민수(******-*******)"]
     assert con["sources"]["landlord"] == "임대인 성명 김민수 주민등록번호 ******-******* 주소 서울"
-    assert con["special_terms"] == ["연락처 010-1234-5678, 계좌 123-456789-12345", "임대인 주민번호 ******-******* 확인"]
-    # 날짜·금액·지번·전화번호는 그대로
+    assert con["special_terms"] == ["연락처 010-****-****, 계좌 123-456789-12345", "임대인 주민번호 ******-******* 확인"]
+    # 날짜·금액·지번·계좌번호는 그대로
     assert reg["address_jibun"] == "경기도 용인시 수지구 죽전동 123-4"
     assert reg["eulgu"][0]["received_at"] == "2020-01-02" and reg["eulgu"][0]["amount"] == 120000000
     assert reg["viewed_at"] == "2026-11-14T10:31:22+09:00"

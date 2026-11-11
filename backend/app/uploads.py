@@ -5,7 +5,7 @@
   PDF는 PDF 뷰어처럼 앞 1024바이트 안의 "%PDF-"를 찾고(프론트엔드와 같은 기준), 그 위치부터 잘라 쓴다.
 - 어긋나면 모두 UNSUPPORTED_FILE이다. 로그에는 사유 코드만 남긴다.
 - 소유자 암호(권한 제한)만 걸린 PDF는 열람 암호가 비어 있으므로 메모리에서 풀어
-  암호 없는 사본을 만들고, 그 사본으로 쪽수를 세고 Claude에 보낸다.
+  암호 없는 사본을 만들고, 그 사본으로 쪽수를 세고 AI에 보낸다.
   열람 암호가 필요한 PDF만 거절한다. AES 복호화에는 cryptography 패키지가 필요하다.
 """
 
@@ -37,7 +37,7 @@ logger = logging.getLogger("app.uploads")
 
 @dataclass(frozen=True)
 class DocInput:
-    """검사를 통과한 문서. kind는 Claude에 보낼 블록 종류다."""
+    """검사를 통과한 문서. kind는 문서 종류다 (PDF는 document, 사진은 image)."""
 
     kind: Literal["document", "image"]
     media_type: str  # application/pdf, image/jpeg, image/png, image/webp

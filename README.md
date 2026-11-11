@@ -42,7 +42,7 @@
 - **계약서 수정 요청서**: 고칠 곳, 넣을 특약, 계약 전에 받을 서류를 한 장으로 만든다. 복사하거나 A4로 인쇄해 공인중개사·임대인에게 보여 줄 수 있다.
 - **수정 전·후 비교**: 요청서를 보여 주고 고친 계약서를 받으면, 고친 계약서 하나만 올려 처음 계약서와 비교한다. 요청한 고칠 곳·특약이 몇 건 반영됐는지, 위험 신호가 어떻게 바뀌었는지, 계약서에서 무엇이 달라졌는지를 보여 준다. 요청을 모두 반영해도 신탁·시세처럼 계약서로 고칠 수 없는 위험은 남는다는 것을 첫 화면에 함께 적는다. 등기부와 직접 입력한 값은 방금 검사에 쓴 것을 그대로 쓰고, 아무것도 저장하지 않는다.
 - **계약 후 재확인 (잔금 전·입주 후)**: 계약서와 오늘 뗀 등기부를 올리면 계약일 이후 새로 생긴 근저당·압류·소유권 이전을 찾고, 계약서 특약(담보 설정 금지, 근저당 말소)을 어겼는지 판정한다. 대항력은 전입신고 다음 날 0시에 생기므로, 잔금일·전입일에 끼어드는 권리를 잡아내는 것이 목적이다. 아무것도 저장하지 않는다.
-- **서류 읽기**: 등기부등본 PDF와 계약서(사진·PDF)를 Claude가 정해진 JSON 형식으로 옮긴다.
+- **서류 읽기**: 등기부등본 PDF와 계약서(사진·PDF)를 AI(OpenAI GPT 또는 Claude)가 정해진 JSON 형식으로 옮긴다.
 - **위험 신호 13가지 검사**: 규칙 엔진이 소유자·신탁·압류·근저당·시세 비율 등을 확인하고, 신호마다 원문 근거와 할 일을 보여 준다.
 - **종합 판정**: 계약 보류 권장 / 추가 확인 필요 / 확인 미완료 / 큰 위험 신호 없음.
 - **다음 행동**: 계약 일정(잔금일·입주일 캘린더 파일)과 계약 전·잔금일·입주일 체크리스트.
@@ -53,7 +53,7 @@
 
 ```
 등기부 PDF ─┐
-            ├─> FastAPI ─> Claude: 서류를 JSON으로 옮기기 (판단하지 않음)
+            ├─> FastAPI ─> AI (GPT 또는 Claude): 서류를 JSON으로 옮기기 (판단하지 않음)
 계약서     ─┘                  │
                                v
                   사용자가 읽은 값 확인·수정
@@ -100,7 +100,7 @@ Python 3.13, Node.js 24에서 테스트했다.
 cd backend
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt     # Windows: .venv\Scripts\pip install -r requirements.txt
-cp .env.example .env                          # 실제 서류를 분석하려면 ANTHROPIC_API_KEY 입력
+cp .env.example .env                          # 실제 서류를 분석하려면 OPENAI_API_KEY (또는 ANTHROPIC_API_KEY) 입력
 .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
@@ -118,7 +118,7 @@ npm run dev        # http://localhost:5173
 
 | 모드 | 방법 | 필요한 것 |
 |---|---|---|
-| 실제 분석 | 서류 올리기 | 백엔드 + Claude API 키 |
+| 실제 분석 | 서류 올리기 | 백엔드 + OpenAI 또는 Claude API 키 |
 | 예시 | 시작 화면의 예시 결과 링크 (A·B·C, 계약 후 재확인, 수정 전·후 비교) | 백엔드 (API 키·인터넷 없어도 됨) |
 | 모의 화면 | http://localhost:5173/?mock=1 | 프론트엔드만 (화면 작업용) |
 
@@ -126,7 +126,11 @@ npm run dev        # http://localhost:5173
 
 | 이름 | 설명 |
 |---|---|
-| `ANTHROPIC_API_KEY` | Claude API 키. 없으면 `/api/extract`만 503을 내고 나머지는 동작한다 |
+| `OPENAI_API_KEY` | OpenAI API 키. 이 키나 `ANTHROPIC_API_KEY` 중 하나만 있으면 된다. 둘 다 없으면 서류 읽기만 503을 내고 나머지는 동작한다 |
+| `OPENAI_MODEL` | OpenAI 모델. 기본 `gpt-5.5` |
+| `OPENAI_REASONING_EFFORT` | 추론 강도. 기본 `low` |
+| `ANTHROPIC_API_KEY` | Claude API 키 |
+| `AI_PROVIDER` | 두 키가 다 있을 때 쓸 쪽 (`openai` 또는 `anthropic`). 없으면 OpenAI |
 | `EXTRACT_DEADLINE_SECONDS` | 서류 읽기 전체 제한 시간. 기본 85초 (화면이 90초에 포기하므로 그보다 짧게) |
 
 ## API
@@ -151,7 +155,7 @@ npm run dev        # http://localhost:5173
 - 올린 파일은 디스크에 저장하지 않는다. 메모리에서만 처리하고, 크기 제한을 넘으면 읽는 도중에 끊는다.
 - 서버 로그에는 이름·주소·서류 원문을 남기지 않는다.
 - 주민등록번호 형태는 서버 응답과 화면 양쪽에서 `******-*******`로 가린다.
-- 서류 내용은 분석을 위해 Claude API로 전송된다.
+- 서류 내용은 분석을 위해 AI API(OpenAI 또는 Claude)로 전송된다. OpenAI에는 응답을 저장하지 말라고(`store: false`) 요청한다.
 
 ## 테스트
 
@@ -170,7 +174,7 @@ npm run build && npm run lint
 backend/
   app/
     main.py            API
-    extract.py         Claude 호출 (마감 시간, 재시도, 거절 처리)
+    extract.py         AI 호출 (OpenAI·Claude, 마감 시간, 재시도, 거절 처리)
     prompts.py         추출 프롬프트와 JSON 스키마
     rules/             위험 신호 규칙 엔진 (R1–R13), 검토서·재확인·비교 문구
     schemas.py         데이터 형식
@@ -192,13 +196,13 @@ assets/                README 배너와 생성 스크립트
 
 - **법률 자문이 아니다.** 결과는 참고 정보이며 보증금의 안전을 보장하지 않는다.
 - 등기부만으로는 선순위 보증금, 집주인의 세금 체납, 보증사고 이력을 알 수 없다. 검토서에 따로 확인하는 방법을 안내한다.
-- 실제 등기부로 AI 추출 정확도와 소요 시간을 아직 충분히 검증하지 않았다.
+- AI 추출은 가상 예시 서류(A·B·C 등기부, 계약서 PDF·사진)로만 확인했다. `gpt-5.5`(low)로 문서 하나에 6–11초, 종합 판정은 세 예시 모두 예시 입력값과 같았다. 실제 등기부로는 아직 충분히 검증하지 않았다.
 - 공공데이터(실거래가·건축물대장) API는 아직 연결하지 않았다. 연결 전에는 실제 분석에서 R5·R9가 "확인 못 함"으로 나온다. 예시 데이터에는 값이 들어 있다.
 - 사진으로 찍은 등기부는 아직 지원하지 않는다 (인터넷등기소 PDF만).
 
 ## 기술 스택
 
-- 백엔드: Python, FastAPI, Pydantic, pypdf, [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python) (`claude-opus-5-5`)
+- 백엔드: Python, FastAPI, Pydantic, pypdf, [OpenAI Python SDK](https://github.com/openai/openai-python) (`gpt-5.5`) 또는 [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python) (`claude-opus-5-5`)
 - 프론트엔드: React 19, TypeScript, Vite, Pretendard, Noto Serif KR
 - 배너 글꼴: [Galmuri](https://github.com/quiple/galmuri) (SIL Open Font License 1.1). 배너는 [`assets/make_banner.py`](assets/make_banner.py)로 다시 만들 수 있다.
 

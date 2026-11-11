@@ -1,11 +1,12 @@
-"""Claude로 등기부·계약서를 읽어 8.1·8.2 형식으로 옮긴다.
+"""AI(OpenAI GPT 또는 Claude)로 등기부·계약서를 읽어 8.1·8.2 형식으로 옮긴다.
 
 - AI는 읽기만 한다. 위험 판단은 app/rules가 한다.
+- 어느 AI를 쓸지는 ai_provider()가 정한다 (AI_PROVIDER, 없으면 키가 있는 쪽. 둘 다 있으면 OpenAI).
 - 등기부와 계약서는 병렬로 따로 호출한다.
 - 두 문서를 합쳐 마감 시간(EXTRACT_DEADLINE_SECONDS, 기본 85초) 안에 끝내거나 AI_FAILED로 실패한다.
   화면은 90초에 포기하므로 그보다 짧다. SDK 자동 재시도는 끄고, 일시적인 오류
   (연결·timeout, 5xx, 429)는 마감 안에서 문서마다 한 번만 직접 다시 부른다.
-- 로그에는 문서 종류, stop_reason, 토큰 수, 걸린 시간만 남긴다 (문서 내용·이름·주소는 남기지 않는다).
+- 로그에는 문서 종류, 종료 사유, 토큰 수, 걸린 시간만 남긴다 (문서 내용·이름·주소는 남기지 않는다).
 - 테스트에서는 _client를 가짜 객체로 바꿔 끼운다 (네트워크를 쓰지 않는다).
 """
 
@@ -18,11 +19,13 @@ import json
 import logging
 import math
 import email.utils
+import re
 import os
 import time
 from typing import Any, Awaitable, Callable, NamedTuple, TypeVar
 
 import anthropic
+import openai
 from pydantic import BaseModel, ValidationError
 
 from app.errors import ApiError
@@ -43,8 +46,10 @@ from app.uploads import DocInput
 
 MODEL = "claude-opus-5-5"
 EFFORT = "medium"  # medium에서 시작해 충분하면 low로 낮춘다
+OPENAI_DEFAULT_MODEL = "gpt-5.5"  # 환경변수 OPENAI_MODEL로 바꾼다
+OPENAI_DEFAULT_EFFORT = "low"  # 환경변수 OPENAI_REASONING_EFFORT로 바꾼다 (옮겨 적기라 낮게 둔다)
 MAX_TOKENS = 16000
-RETRY_MAX_TOKENS = 32000  # stop_reason == "max_tokens"면 한 번만 이 값으로 다시 부른다
+RETRY_MAX_TOKENS = 32000  # 출력 한도에 걸리면 한 번만 이 값으로 다시 부른다
 BETAS = ["server-side-fallback-2026-07-01"]
 FALLBACKS = "default"  # 거절되면 서버가 다른 모델로 다시 시도한다
 DEFAULT_DEADLINE_SECONDS = 85.0  # 환경변수 EXTRACT_DEADLINE_SECONDS로 바꾼다. 두 문서를 합친 전체 상한.
@@ -57,16 +62,43 @@ KST = dt.timezone(dt.timedelta(hours=9))
 
 logger = logging.getLogger("app.extract")
 
-_client: Any = None  # anthropic.AsyncAnthropic. 처음 필요할 때 만든다.
+_client: Any = None  # anthropic.AsyncAnthropic 또는 OpenAIClient. 처음 필요할 때 만든다.
 _sleep = asyncio.sleep  # 재시도 전 대기. 테스트에서 바꿔 끼운다.
 
 M = TypeVar("M", bound=BaseModel)
 T = TypeVar("T")
 
 
+def ai_provider() -> str | None:
+    """서류를 읽을 AI: "openai" 또는 "anthropic". 쓸 수 있는 키가 없으면 None.
+
+    AI_PROVIDER(openai·anthropic)가 있으면 그쪽 키만 본다. 없으면 OPENAI_API_KEY, ANTHROPIC_API_KEY 순서로 찾는다.
+    """
+    has_key = {
+        "openai": bool(os.environ.get("OPENAI_API_KEY")),
+        "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")),
+    }
+    choice = os.environ.get("AI_PROVIDER", "").strip().lower()
+    if choice in has_key:
+        return choice if has_key[choice] else None
+    return next((name for name, ok in has_key.items() if ok), None)
+
+
 def has_credentials() -> bool:
-    """Claude API 키가 환경변수에 있는지 (/api/health의 ai_ready)."""
-    return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+    """AI API 키가 환경변수에 있는지 (/api/health의 ai_ready)."""
+    return ai_provider() is not None
+
+
+class OpenAIClient:
+    """OpenAI SDK 클라이언트와 모델 설정. _request_json은 이 타입이면 OpenAI Responses API로 부른다."""
+
+    def __init__(self, sdk: Any, *, model: str | None = None, effort: str | None = None) -> None:
+        self.sdk = sdk
+        self.model = model or os.environ.get("OPENAI_MODEL", "").strip() or OPENAI_DEFAULT_MODEL
+        self.effort = effort or os.environ.get("OPENAI_REASONING_EFFORT", "").strip() or OPENAI_DEFAULT_EFFORT
+
+    async def close(self) -> None:
+        await self.sdk.close()
 
 
 def deadline_seconds() -> float:
@@ -101,8 +133,12 @@ def get_client() -> Any:
     """클라이언트를 돌려준다. 키가 없으면 API를 부르지 않고 AI_FAILED(503)를 낸다."""
     global _client
     if _client is None:
-        if not has_credentials():
+        provider = ai_provider()
+        if provider is None:
             raise ApiError.ai_unavailable()
+        if provider == "openai":
+            _client = OpenAIClient(openai.AsyncOpenAI(timeout=CLIENT_TIMEOUT, max_retries=CLIENT_MAX_RETRIES))
+            return _client
         # 기본값이 아닌 timeout을 꼭 둔다. 클라이언트가 기본 timeout이고 요청에도 timeout이 없으면
         # SDK가 max_tokens=32000 비스트리밍 재시도를 "Streaming is required" ValueError로 막는다.
         # (요청마다 남은 시간을 timeout으로 넘기지만, 이 값은 그 밖의 호출을 위한 안전장치다.)
@@ -124,9 +160,21 @@ async def aclose_client() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _b64(doc: DocInput) -> str:
+    return base64.standard_b64encode(doc.data).decode("ascii")
+
+
 def _source_block(doc: DocInput) -> dict[str, Any]:
-    data = base64.standard_b64encode(doc.data).decode("ascii")
-    return {"type": doc.kind, "source": {"type": "base64", "media_type": doc.media_type, "data": data}}
+    """Claude용 문서 블록 (document 또는 image)."""
+    return {"type": doc.kind, "source": {"type": "base64", "media_type": doc.media_type, "data": _b64(doc)}}
+
+
+def _openai_source_block(doc: DocInput, kind: str) -> dict[str, Any]:
+    """OpenAI용 문서 블록. PDF는 input_file, 사진은 input_image (손글씨·작은 글자 때문에 high)."""
+    data_url = f"data:{doc.media_type};base64,{_b64(doc)}"
+    if doc.kind == "image":
+        return {"type": "input_image", "image_url": data_url, "detail": "high"}
+    return {"type": "input_file", "filename": f"{kind}.pdf", "file_data": data_url}
 
 
 def _ai_failed(kind: str, reason: str) -> ApiError:
@@ -164,16 +212,92 @@ def _server_allows_retry(error: Exception) -> bool:
     return headers is None or headers.get("x-should-retry", "").lower() != "false"
 
 
-async def _wait_for_retry(kind: str, failure: _Failure, deadline: float | None) -> bool:
+async def _wait_for_retry(name: str, kind: str, failure: _Failure, deadline: float | None) -> bool:
     """일시적 오류 뒤 다시 부를지 정한다. 기다린 뒤에도 마감까지 RETRY_MIN_SECONDS 이상 남아야 한다."""
     left = _seconds_left(deadline)
     if left - failure.wait < RETRY_MIN_SECONDS:
-        logger.info("claude no retry doc=%s reason=%s wait=%.1fs left=%.1fs", kind, failure.reason, failure.wait, left)
+        logger.info("%s no retry doc=%s reason=%s wait=%.1fs left=%.1fs", name, kind, failure.reason, failure.wait, left)
         return False
-    logger.info("claude retry doc=%s reason=%s wait=%.1fs left=%.1fs", kind, failure.reason, failure.wait, left)
+    logger.info("%s retry doc=%s reason=%s wait=%.1fs left=%.1fs", name, kind, failure.reason, failure.wait, left)
     if failure.wait > 0:
         await _sleep(failure.wait)
     return True
+
+
+class _Reply(NamedTuple):
+    """AI 응답 요약. stop은 "ok", "max_tokens", "refusal" 또는 그 밖의 실패 사유다."""
+
+    stop: str
+    text: str | None
+    raw_stop: Any  # 로그용 원래 종료 사유
+    model: Any
+    usage: Any
+
+
+async def _call_claude(
+    client: Any, *, kind: str, system: str, schema: dict[str, Any], doc: DocInput, user_text: str,
+    max_tokens: int, timeout: float,
+) -> _Reply:
+    resp = await client.beta.messages.create(
+        model=MODEL,
+        max_tokens=max_tokens,
+        betas=BETAS,
+        fallbacks=FALLBACKS,
+        output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": schema}},
+        system=system,
+        messages=[{"role": "user", "content": [_source_block(doc), {"type": "text", "text": user_text}]}],
+        timeout=timeout,
+    )
+    stop_reason = getattr(resp, "stop_reason", None)
+    text = None
+    if stop_reason in ("end_turn", "stop_sequence"):
+        stop = "ok"
+        # 생각(thinking)·fallback 블록이 앞에 올 수 있다. 첫 text 블록이 답이다.
+        text = next((b.text for b in resp.content if getattr(b, "type", None) == "text"), None)
+    elif stop_reason in ("max_tokens", "refusal"):
+        stop = stop_reason
+    else:
+        stop = f"stop_{stop_reason}"
+    return _Reply(stop, text, stop_reason, getattr(resp, "model", None), getattr(resp, "usage", None))
+
+
+async def _call_openai(
+    client: OpenAIClient, *, kind: str, system: str, schema: dict[str, Any], doc: DocInput, user_text: str,
+    max_tokens: int, timeout: float,
+) -> _Reply:
+    resp = await client.sdk.responses.create(
+        model=client.model,
+        instructions=system,
+        input=[
+            {
+                "role": "user",
+                "content": [_openai_source_block(doc, kind), {"type": "input_text", "text": user_text}],
+            }
+        ],
+        text={"format": {"type": "json_schema", "name": kind, "schema": schema, "strict": True}},
+        reasoning={"effort": client.effort},
+        max_output_tokens=max_tokens,
+        store=False,  # 서류 내용을 OpenAI 쪽에 남기지 않는다
+        timeout=timeout,
+    )
+    status = getattr(resp, "status", None)
+    reason = getattr(getattr(resp, "incomplete_details", None), "reason", None)
+    raw_stop = status if reason is None else f"{status}:{reason}"
+    text = None
+    if status == "completed":
+        parts = [c for item in (getattr(resp, "output", None) or []) for c in (getattr(item, "content", None) or [])]
+        if any(getattr(c, "type", None) == "refusal" for c in parts):
+            stop = "refusal"
+        else:
+            stop = "ok"
+            text = next((c.text for c in parts if getattr(c, "type", None) == "output_text"), None)
+    elif status == "incomplete" and reason == "max_output_tokens":
+        stop = "max_tokens"
+    elif status == "incomplete" and reason == "content_filter":
+        stop = "refusal"
+    else:
+        stop = f"status_{status}" + (f"_{reason}" if reason else "")
+    return _Reply(stop, text, raw_stop, getattr(resp, "model", None), getattr(resp, "usage", None))
 
 
 async def _request_json(
@@ -186,14 +310,15 @@ async def _request_json(
     user_text: str,
     deadline: float | None = None,
 ) -> Any:
-    """Claude를 불러 JSON 응답을 파싱해 돌려준다. 실패하면 AI_FAILED.
+    """AI를 불러 JSON 응답을 파싱해 돌려준다. 실패하면 AI_FAILED. client가 OpenAIClient면 OpenAI, 아니면 Claude.
 
     deadline(이벤트 루프 시각)이 있으면 요청 timeout을 남은 시간으로 둔다. 다시 부르는 경우는 둘이다.
     - 일시적 오류(연결·timeout, 5xx, 429): 한 번. retry-after를 기다린 뒤에도 RETRY_MIN_SECONDS 이상 남을 때만.
-    - stop_reason == "max_tokens": 한도를 늘려 한 번. 남은 시간이 RETRY_MIN_SECONDS와 첫 시도 시간보다 길 때만.
+    - 출력 한도(max_tokens): 한도를 늘려 한 번. 남은 시간이 RETRY_MIN_SECONDS와 첫 시도 시간보다 길 때만.
     거절, 4xx(429 제외), JSON·스키마 오류는 다시 부르지 않는다.
     """
-    content = [_source_block(doc), {"type": "text", "text": user_text}]
+    call = _call_openai if isinstance(client, OpenAIClient) else _call_claude
+    name = "openai" if isinstance(client, OpenAIClient) else "claude"
     max_tokens = MAX_TOKENS
     retried_after_error = False
     attempt = 0
@@ -201,50 +326,43 @@ async def _request_json(
         attempt += 1
         started = time.perf_counter()
         try:
-            resp = await client.beta.messages.create(
-                model=MODEL,
-                max_tokens=max_tokens,
-                betas=BETAS,
-                fallbacks=FALLBACKS,
-                output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": schema}},
-                system=system,
-                messages=[{"role": "user", "content": content}],
-                timeout=_request_timeout(deadline),
+            reply = await call(
+                client, kind=kind, system=system, schema=schema, doc=doc, user_text=user_text,
+                max_tokens=max_tokens, timeout=_request_timeout(deadline),
             )
             failure = None
-        except anthropic.APITimeoutError as e:
+        except (anthropic.APITimeoutError, openai.APITimeoutError) as e:
             failure = _Failure("timeout", True, _retry_wait_seconds(e))
-        except anthropic.APIConnectionError as e:
+        except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
             failure = _Failure("connection_error", True, _retry_wait_seconds(e))
-        except anthropic.RateLimitError as e:
+        except (anthropic.RateLimitError, openai.RateLimitError) as e:
             failure = _Failure("rate_limited", _server_allows_retry(e), _retry_wait_seconds(e))
-        except anthropic.APIStatusError as e:
+        except (anthropic.APIStatusError, openai.APIStatusError) as e:
             retryable = e.status_code >= 500 and _server_allows_retry(e)
             failure = _Failure(f"api_status_{e.status_code}", retryable, _retry_wait_seconds(e))
-        except anthropic.AnthropicError as e:  # 인증 정보 해석 실패 등 그 밖의 SDK 오류
+        except (anthropic.AnthropicError, openai.OpenAIError) as e:  # 인증 정보 해석 실패 등 그 밖의 SDK 오류
             failure = _Failure(f"sdk_{type(e).__name__}", False)
         if failure is not None:
-            if failure.retryable and not retried_after_error and await _wait_for_retry(kind, failure, deadline):
+            if failure.retryable and not retried_after_error and await _wait_for_retry(name, kind, failure, deadline):
                 retried_after_error = True
                 continue
             raise _ai_failed(kind, failure.reason)
 
         took = time.perf_counter() - started
-        stop_reason = getattr(resp, "stop_reason", None)
-        usage = getattr(resp, "usage", None)
         logger.info(
-            "claude doc=%s attempt=%d stop=%s model=%s in_tokens=%s out_tokens=%s took=%.1fs",
+            "%s doc=%s attempt=%d stop=%s model=%s in_tokens=%s out_tokens=%s took=%.1fs",
+            name,
             kind,
             attempt,
-            stop_reason,
-            getattr(resp, "model", None),
-            getattr(usage, "input_tokens", None),
-            getattr(usage, "output_tokens", None),
+            reply.raw_stop,
+            reply.model,
+            getattr(reply.usage, "input_tokens", None),
+            getattr(reply.usage, "output_tokens", None),
             took,
         )
-        if stop_reason == "refusal":
+        if reply.stop == "refusal":
             raise _ai_failed(kind, "refusal")
-        if stop_reason == "max_tokens":
+        if reply.stop == "max_tokens":
             if max_tokens == RETRY_MAX_TOKENS:
                 raise _ai_failed(kind, "max_tokens")
             # 다시 부르면 첫 시도보다 오래 걸린다. 마감 전에 끝낼 수 없으면 바로 실패한다.
@@ -252,15 +370,12 @@ async def _request_json(
                 raise _ai_failed(kind, "max_tokens_no_time")
             max_tokens = RETRY_MAX_TOKENS  # 한도를 늘려 한 번 더
             continue
-        if stop_reason not in ("end_turn", "stop_sequence"):
-            raise _ai_failed(kind, f"stop_{stop_reason}")
-
-        # 생각(thinking)·fallback 블록이 앞에 올 수 있다. 첫 text 블록이 답이다.
-        text = next((b.text for b in resp.content if getattr(b, "type", None) == "text"), None)
-        if text is None:
+        if reply.stop != "ok":
+            raise _ai_failed(kind, reply.stop)
+        if reply.text is None:
             raise _ai_failed(kind, "no_text_block")
         try:
-            return json.loads(text)
+            return json.loads(reply.text)
         except ValueError:
             raise _ai_failed(kind, "invalid_json") from None
 
@@ -299,6 +414,15 @@ async def extract_registry(client: Any, doc: DocInput, *, deadline: float | None
     return registry
 
 
+# 특약 칸에 "없음"처럼 특약이 없다는 표시만 있을 때 AI가 그 글자를 특약으로 옮기는 경우가 있다.
+_NO_TERM_MARKS = {"없음", "해당없음", "특약없음", "특약사항없음", "없다", "無", "none", "na"}
+
+
+def _is_no_term_mark(term: str) -> bool:
+    key = re.sub(r"[\s.,·:()\[\]\-—~]", "", term).lower()
+    return key == "" or key in _NO_TERM_MARKS
+
+
 async def extract_contract(client: Any, doc: DocInput, *, deadline: float | None = None) -> ContractExtract:
     """계약서를 읽는다. 임대차 계약서가 아니면 NOT_CONTRACT."""
     data = await _request_json(
@@ -313,6 +437,9 @@ async def extract_contract(client: Any, doc: DocInput, *, deadline: float | None
     contract = _validate(ContractExtract, data, "contract")
     if not contract.is_contract:
         raise ApiError("NOT_CONTRACT", reason="contract:is_contract_false")
+    terms = [t for t in contract.special_terms if not _is_no_term_mark(t)]
+    if len(terms) != len(contract.special_terms):
+        contract = contract.model_copy(update={"special_terms": terms})
     return contract
 
 

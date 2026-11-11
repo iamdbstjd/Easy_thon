@@ -204,7 +204,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="자취방 보증금 지킴이 API",
     version="0.1.0",
-    description="등기부·계약서 추출(Claude)과 위험 신호 검사(규칙 엔진).",
+    description="등기부·계약서 추출(OpenAI GPT 또는 Claude)과 위험 신호 검사(규칙 엔진).",
     lifespan=lifespan,
 )
 app.add_middleware(RequestContextMiddleware)
@@ -239,7 +239,7 @@ _ERROR_DOC = {"model": ErrorResponse}
 
 
 async def _cancel_if_client_leaves(request: Request, work: Awaitable[T]) -> T:
-    """클라이언트가 연결을 끊으면(화면 시간 초과·취소) 진행 중인 추출(Claude 호출)을 취소한다."""
+    """클라이언트가 연결을 끊으면(화면 시간 초과·취소) 진행 중인 추출(AI 호출)을 취소한다."""
     task = asyncio.ensure_future(work)
     client_left = False
 
@@ -283,7 +283,7 @@ async def extract_route(
     registry: UploadFile = File(..., description="등기부등본 PDF (필수, 10MB·30쪽 이하)"),
     contract: Optional[UploadFile] = File(None, description="계약서 사진(JPG·PNG·WEBP) 또는 PDF (선택, 10MB 이하)"),
 ) -> ExtractResponse:
-    """등기부(필수)와 계약서(선택)를 Claude로 읽어 8.1·8.2 형식으로 돌려준다. 파일은 저장하지 않는다.
+    """등기부(필수)와 계약서(선택)를 AI로 읽어 8.1·8.2 형식으로 돌려준다. 파일은 저장하지 않는다.
 
     응답의 모든 문자열에서 주민등록번호 모양은 "******-*******"로 가린다.
     """

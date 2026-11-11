@@ -1,4 +1,4 @@
-"""Claude 추출용 프롬프트와 JSON 스키마.
+"""AI 추출용 프롬프트와 JSON 스키마 (OpenAI·Claude 공통).
 
 정확도를 조정할 때는 이 파일만 고친다.
 - 스키마 필드는 app/schemas.py의 Pydantic 모델과 이름이 같아야 한다 (tests/test_extract.py가 확인한다).
@@ -82,7 +82,7 @@ CONTRACT_SYSTEM_PROMPT = """\
 - balance_date: 잔금 지급일.
 - move_in_date: 인도일 (임대차 기간이 시작되는 날).
 - lease_end: 임대차 기간이 끝나는 날.
-- special_terms: '특약사항' 칸의 문장을 원문 그대로 하나씩 담는다. 인쇄된 일반 조항(제1조 등)은 넣지 않는다. 특약이 없거나 비어 있으면 빈 배열이다.
+- special_terms: '특약사항' 칸의 문장을 원문 그대로 하나씩 담는다. 인쇄된 일반 조항(제1조 등)은 넣지 않는다. 특약이 없거나 비어 있거나, '없음'·'해당 없음'처럼 특약이 없다는 표시만 있으면 빈 배열이다.
 - sources: 근거 원문. 계약서 글자를 그대로 옮긴다.
   - landlord: 임대인 성명이 적힌 부분.
   - address: 소재지가 적힌 부분.

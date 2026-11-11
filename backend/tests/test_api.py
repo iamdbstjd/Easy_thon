@@ -27,8 +27,12 @@ from app.errors import ERROR_MESSAGES
 from app.schemas import (
     RULE_NAMES,
     CheckRequest,
+    CompareReport,
+    CompareRequest,
+    ContractChange,
     ContractExtract,
     Counts,
+    FulfillmentRate,
     IcsRequest,
     Overall,
     RecheckChange,
@@ -36,6 +40,8 @@ from app.schemas import (
     RecheckRequest,
     RegistryExtract,
     Report,
+    RequestFulfillment,
+    RuleDelta,
     RuleResult,
     TermCheck,
 )
@@ -234,6 +240,9 @@ def test_openapi_schema_builds(client):
         "/api/checklist.ics",
         "/api/recheck",
         "/api/demo/recheck-A",
+        "/api/extract/contract",
+        "/api/compare",
+        "/api/demo/compare-C",
     } <= set(paths)
 
 
@@ -1236,4 +1245,258 @@ def test_real_recheck_demo_file_is_valid_and_masked(client):
     r = client.get("/api/demo/recheck-A")
     assert r.status_code == 200, r.text
     assert RecheckRequest.model_validate(r.json()).mode == "demo"
+    assert UNMASKED_ID.search(r.text) is None
+
+
+# ---------------------------------------------------------------------------
+# 계약서 변경 추적: POST /api/extract/contract, POST /api/compare, GET /api/demo/compare-C
+# ---------------------------------------------------------------------------
+
+
+def contract_file(data=PNG, name="contract.png", content_type="image/png"):
+    return {"contract": (name, data, content_type)}
+
+
+def test_extract_contract_only_success(client, monkeypatch):
+    revised = {
+        **CONTRACT_OK,
+        "landlord_names": ["○○부동산신탁(주)"],
+        "sources": {**CONTRACT_OK["sources"], "landlord": "임대인 ○○부동산신탁(주) 법인등록번호 110111-1234567"},
+    }
+    fake = install_ai(monkeypatch, contract=make_response(revised))
+    r = client.post("/api/extract/contract", files=contract_file(JPEG, "c.jpg", "image/jpeg"))
+    assert r.status_code == 200, r.text
+    body = ContractExtract.model_validate(r.json())
+    assert body.landlord_names == ["○○부동산신탁(주)"]
+    assert body.sources.landlord == "임대인 ○○부동산신탁(주) 법인등록번호 ******-*******"  # 가림
+    assert UNMASKED_ID.search(r.text) is None
+    (kwargs,) = fake.messages.calls  # 등기부는 부르지 않는다
+    assert doc_kind(kwargs) == "contract"
+    assert kwargs["system"] == prompts.CONTRACT_SYSTEM_PROMPT
+    image = kwargs["messages"][0]["content"][0]
+    assert (image["type"], image["source"]["media_type"]) == ("image", "image/jpeg")
+    assert 0 < kwargs["timeout"] <= 85  # 같은 마감 시간
+
+
+def test_extract_contract_only_pdf_with_leading_bytes_and_owner_password(client, monkeypatch):
+    fake = install_ai(monkeypatch, contract=make_response(CONTRACT_OK))
+    encrypted = make_pdf(2, owner_password="owner", algorithm="AES-256")
+    r = client.post("/api/extract/contract", files=contract_file(b"junk\r\n" + encrypted, "c.pdf", "application/pdf"))
+    assert r.status_code == 200, r.text
+    sent = base64.b64decode(fake.messages.calls[0]["messages"][0]["content"][0]["source"]["data"])
+    assert sent.startswith(b"%PDF-") and PdfReader(io.BytesIO(sent)).is_encrypted is False
+
+
+def test_extract_contract_only_not_contract(client, monkeypatch):
+    install_ai(monkeypatch, contract=make_response({**CONTRACT_OK, "is_contract": False}))
+    assert_error(client.post("/api/extract/contract", files=contract_file()), 422, "NOT_CONTRACT")
+
+
+def test_extract_contract_only_ai_failures(client, monkeypatch):
+    install_ai(monkeypatch, contract=make_response(None, stop_reason="refusal"))
+    assert_error(client.post("/api/extract/contract", files=contract_file()), 502, "AI_FAILED")
+
+    import httpx2
+
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    overloaded = anthropic.APIStatusError("overloaded", response=httpx2.Response(529, request=request), body=None)
+    fake = install_ai(monkeypatch, contract=[overloaded, make_response(CONTRACT_OK)])
+    assert client.post("/api/extract/contract", files=contract_file()).status_code == 200  # 같은 재시도
+    assert len(fake.messages.calls) == 2
+
+
+def test_extract_contract_only_deadline(client, monkeypatch):
+    monkeypatch.setenv("EXTRACT_DEADLINE_SECONDS", "0.2")
+
+    async def slow(kwargs):
+        await asyncio.sleep(10)
+        return make_response(CONTRACT_OK)
+
+    monkeypatch.setattr(extract, "_client", FakeClient(lambda kwargs, _n: slow(kwargs)))
+    started = time.perf_counter()
+    assert_error(client.post("/api/extract/contract", files=contract_file()), 502, "AI_FAILED")
+    assert time.perf_counter() - started < 3
+
+
+def test_extract_contract_only_without_api_key_is_503(client):
+    assert_error(client.post("/api/extract/contract", files=contract_file()), 503, "AI_FAILED")
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        contract_file(b"GIF89a" + b"\x00" * 32, "c.gif", "image/gif"),
+        contract_file(b"just text", "c.txt", "text/plain"),
+        contract_file(b"", "c.png"),
+        contract_file(make_pdf(31), "c.pdf", "application/pdf"),
+        contract_file(make_pdf(1, user_password="secret"), "c.pdf", "application/pdf"),
+        contract_file(b"\xff\xd8\xff" + b"0" * (10 * 1024 * 1024), "big.jpg", "image/jpeg"),
+        {"contract": ("", b"", "application/octet-stream")},
+        registry_file(),  # 필드 이름이 contract가 아니다
+    ],
+    ids=["gif", "text", "empty", "31-pages", "user-password", "over-10mb", "blank-part", "wrong-field"],
+)
+def test_extract_contract_only_unsupported_files(client, monkeypatch, files):
+    fake = install_ai(monkeypatch, contract=make_response(CONTRACT_OK))
+    assert_error(client.post("/api/extract/contract", files=files), 400, "UNSUPPORTED_FILE")
+    assert fake.messages.calls == []
+
+
+def test_extract_contract_only_has_single_file_body_cap(client, monkeypatch):
+    # 파일 하나짜리 경로라 상한이 약 11MB다 (/api/extract의 21MB보다 작다). chunked도 센다.
+    fake = install_ai(monkeypatch, contract=make_response(CONTRACT_OK))
+    size = uploads.MAX_SINGLE_FILE_REQUEST_BYTES + 1024
+    assert size < uploads.MAX_REQUEST_BYTES
+    head = b'--b\r\nContent-Disposition: form-data; name="contract"; filename="c.jpg"\r\nContent-Type: image/jpeg\r\n\r\n'
+    body = head + b"\xff\xd8\xff" + b"0" * size + b"\r\n--b--\r\n"
+
+    def chunks():
+        for i in range(0, len(body), 1024 * 1024):
+            yield body[i : i + 1024 * 1024]
+
+    r = client.post("/api/extract/contract", content=chunks(), headers={"content-type": "multipart/form-data; boundary=b"})
+    assert_error(r, 400, "UNSUPPORTED_FILE")
+    assert fake.messages.calls == []
+
+
+COMPARE_AFTER_CONTRACT = {
+    **CONTRACT_OK,
+    "landlord_names": ["○○부동산신탁(주)"],
+    "sources": {**CONTRACT_OK["sources"], "landlord": "임대인 ○○부동산신탁(주) 110111-*******"},
+}
+COMPARE_FIXTURE = {
+    "before": {"registry": REGISTRY_OK, "contract": CONTRACT_OK, "today": "2026-11-14"},
+    "after": {"registry": REGISTRY_OK, "contract": COMPARE_AFTER_CONTRACT, "today": "2026-11-14"},
+}
+
+
+def make_compare_report(req: CompareRequest) -> CompareReport:
+    overall = Overall(level="red", title="계약 보류 권장", message="위험 신호가 있어요.")
+    return CompareReport(
+        mode=req.mode,
+        generated_at=dt.datetime(2026, 11, 14, 19, 0, tzinfo=KST),
+        today=req.today,
+        before_overall=overall,
+        after_overall=overall,
+        before_counts=Counts(red=3, yellow=2, green=8),
+        after_counts=Counts(red=2, yellow=1, green=10),
+        rate=FulfillmentRate(done=5, total=5),
+        headline="위험 3건 → 2건, 요청 5건 중 5건 반영",
+        fulfillment=[RequestFulfillment(kind="fix", item="임대인", status="반영")],
+        rule_deltas=[RuleDelta(id="R1", name=RULE_NAMES["R1"], before="red", after="green", change="개선")],
+        contract_changes=[
+            ContractChange(
+                field="임대인",
+                before=req.before.contract.sources.landlord + " 800101-1234567",
+                after=req.after.contract.sources.landlord,
+            ),
+            ContractChange(field="보증금", before="1,000만 원", after="1,000만 원"),
+        ],
+        disclaimer="이 결과는 참고 정보예요.",
+    )
+
+
+@pytest.fixture
+def fake_compare(monkeypatch):
+    seen: list[CompareRequest] = []
+
+    def fake(req):
+        seen.append(req)
+        return make_compare_report(req)
+
+    monkeypatch.setattr(main, "build_compare", fake)
+    return seen
+
+
+def test_compare_calls_rules_engine(client, fake_compare):
+    r = client.post("/api/compare", json={**COMPARE_FIXTURE, "today": "2026-11-20"})
+    assert r.status_code == 200, r.text
+    report = CompareReport.model_validate(r.json())
+    assert (report.mode, report.today, report.headline) == ("live", dt.date(2026, 11, 20), "위험 3건 → 2건, 요청 5건 중 5건 반영")
+    (req,) = fake_compare
+    assert isinstance(req, CompareRequest)
+    assert req.after.contract is not None and req.after.contract.landlord_names == ["○○부동산신탁(주)"]
+
+
+def test_compare_today_defaults(client, fake_compare, monkeypatch):
+    monkeypatch.setattr(main, "today_kst", lambda: dt.date(2030, 1, 2))
+    assert client.post("/api/compare", json=COMPARE_FIXTURE).json()["today"] == "2026-11-14"  # 수정 전 입력의 today
+    no_dates = {key: {**value, "today": None} for key, value in COMPARE_FIXTURE.items()}
+    assert client.post("/api/compare", json=no_dates).json()["today"] == "2030-01-02"  # 현재 한국 날짜
+    assert [req.today for req in fake_compare] == [dt.date(2026, 11, 14), dt.date(2030, 1, 2)]
+
+
+def test_compare_masks_resident_ids(client, fake_compare):
+    r = client.post("/api/compare", json=COMPARE_FIXTURE)
+    assert r.status_code == 200, r.text
+    assert UNMASKED_ID.search(r.text) is None
+    assert "800101" not in r.text
+    change = r.json()["contract_changes"][0]
+    assert change["after"] == "임대인 ○○부동산신탁(주) ******-*******"
+    assert change["before"].endswith("김민수 ******-*******")
+    assert r.json()["contract_changes"][1] == {"field": "보증금", "before": "1,000만 원", "after": "1,000만 원"}
+
+
+def test_compare_invalid_body_is_422(client, fake_compare):
+    r = client.post("/api/compare", json={"before": COMPARE_FIXTURE["before"]})
+    assert r.status_code == 422 and "detail" in r.json()
+    assert fake_compare == []
+
+
+def test_compare_unhandled_error_is_500(client, monkeypatch):
+    def broken(req):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(main, "build_compare", broken)
+    assert_error(client.post("/api/compare", json=COMPARE_FIXTURE), 500, "INTERNAL_ERROR")
+
+
+def test_compare_demo_is_masked_and_demo_mode(client, tmp_path, monkeypatch):
+    fixture = {
+        "before": {**COMPARE_FIXTURE["before"], "mode": "live"},
+        "after": {**COMPARE_FIXTURE["after"], "mode": "live"},
+        "mode": "live",
+    }
+    (tmp_path / "compare-C.json").write_text(json.dumps(fixture, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(main, "DEMO_DIR", tmp_path)
+    r = client.get("/api/demo/compare-C")
+    assert r.status_code == 200, r.text
+    req = CompareRequest.model_validate(r.json())
+    assert (req.mode, req.before.mode, req.after.mode) == ("demo", "demo", "demo")
+    assert UNMASKED_ID.search(r.text) is None
+    assert "******-*******" in req.before.registry.gapgu[0].source_text  # REGISTRY_OK의 800101-*******
+
+
+def test_compare_demo_missing_or_invalid(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "DEMO_DIR", tmp_path)
+    assert_error(client.get("/api/demo/compare-C"), 404, "NOT_FOUND")
+    (tmp_path / "compare-C.json").write_text(json.dumps({"before": COMPARE_FIXTURE["before"]}), encoding="utf-8")
+    assert_error(client.get("/api/demo/compare-C"), 500, "INTERNAL_ERROR")
+    assert_error(client.get("/api/demo/compare-A"), 404, "NOT_FOUND")  # 다른 이름은 시나리오로도 없다
+
+
+def test_compare_with_real_rules_engine(client):
+    try:
+        from app.rules import build_compare
+    except ImportError:
+        pytest.skip("규칙 엔진에 build_compare가 아직 없다")
+    req = CompareRequest.model_validate({**COMPARE_FIXTURE, "mode": "demo"})
+    try:
+        build_compare(req)
+    except NotImplementedError:
+        pytest.skip("build_compare가 아직 구현되지 않았다")
+    r = client.post("/api/compare", json=req.model_dump(mode="json"))
+    assert r.status_code == 200, r.text
+    report = CompareReport.model_validate(r.json())
+    assert (report.mode, report.today) == ("demo", dt.date(2026, 11, 14))
+    assert UNMASKED_ID.search(r.text) is None
+
+
+def test_real_compare_demo_file_is_valid_and_masked(client):
+    if not (config.BACKEND_DIR / "demo" / "compare-C.json").is_file():
+        pytest.skip("demo/compare-C.json이 아직 없다")
+    r = client.get("/api/demo/compare-C")
+    assert r.status_code == 200, r.text
+    req = CompareRequest.model_validate(r.json())
+    assert (req.mode, req.before.mode, req.after.mode) == ("demo", "demo", "demo")
     assert UNMASKED_ID.search(r.text) is None

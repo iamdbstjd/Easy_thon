@@ -25,6 +25,8 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 파일 하나당 10MB
 MAX_PDF_PAGES = 30  # 넘으면 '현재 유효사항'으로 다시 열람하라고 안내한다
 # /api/extract 요청 전체 상한: 파일 2개 + multipart 여유분. 넘으면 본문을 읽지 않고 거절한다.
 MAX_REQUEST_BYTES = 2 * MAX_UPLOAD_BYTES + 1024 * 1024
+# /api/extract/contract 요청 상한: 파일 1개 + multipart 여유분
+MAX_SINGLE_FILE_REQUEST_BYTES = MAX_UPLOAD_BYTES + 1024 * 1024
 
 PDF_MEDIA_TYPE = "application/pdf"
 PDF_HEADER = b"%PDF-"

@@ -11,6 +11,8 @@ export function StartScreen({
   onRecheck,
   onRecheckDemo,
   recheckDemoLoading,
+  onCompareDemo,
+  compareDemoLoading,
 }: {
   onUpload: () => void
   onDemo: (scenario: DemoScenario) => void
@@ -20,6 +22,9 @@ export function StartScreen({
   /** 계약 후 재확인 예시 (S7) */
   onRecheckDemo: () => void
   recheckDemoLoading: boolean
+  /** 수정 전·후 비교 예시 (S8) */
+  onCompareDemo: () => void
+  compareDemoLoading: boolean
 }) {
   const titleRef = useScreenFocus<HTMLHeadingElement>()
 
@@ -63,11 +68,20 @@ export function StartScreen({
         <ExampleLinks
           loading={demoLoading}
           onSelect={onDemo}
-          extra={{
-            label: 'A 집, 잔금 이틀 전 근저당이 생긴 경우',
-            loading: recheckDemoLoading,
-            onSelect: onRecheckDemo,
-          }}
+          extras={[
+            {
+              lead: '계약 후 재확인 예시:',
+              label: 'A 집, 잔금 이틀 전 근저당이 생긴 경우',
+              loading: recheckDemoLoading,
+              onSelect: onRecheckDemo,
+            },
+            {
+              lead: '수정 전·후 비교 예시:',
+              label: 'C 집, 요청서대로 계약서를 고친 경우',
+              loading: compareDemoLoading,
+              onSelect: onCompareDemo,
+            },
+          ]}
         />
       </section>
 

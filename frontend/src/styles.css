@@ -1085,3 +1085,89 @@ details:not([open]) > summary .when-open {
 .example-extra {
   margin-top: 8px;
 }
+
+/* S8 수정 전·후 비교서 */
+/* 머리: 요청 반영 숫자를 가장 크게 (판정과 같은 21px, 명조는 쓰지 않는다) */
+.rate-figure {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+/* 판정 문구는 줄 중간에서 끊지 않는다 */
+.cmp-verdict .verdict {
+  white-space: nowrap;
+}
+.cmp-table.wrap-items th.c-item {
+  white-space: normal;
+  font-weight: 600;
+}
+.cmp-table.wrap-items td.c-result {
+  white-space: nowrap;
+}
+/* 2절: 남은 위험의 상황 문장은 행 아래 본문 줄로 */
+.cmp-table tr.has-note > th,
+.cmp-table tr.has-note > td {
+  border-bottom: 0;
+  padding-bottom: 2px;
+}
+.cmp-table tr.delta-note > td {
+  padding-top: 0;
+}
+@media (max-width: 559px) {
+  .cmp-table tr.cmp-row.has-note {
+    border-bottom: 0;
+    padding-bottom: 4px;
+  }
+  .cmp-table tr.delta-note {
+    display: block;
+    padding: 0 0 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .cmp-table tr.delta-note > td {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+}
+/* 1절: 종류별 묶음. 항목 | 상태, 설명은 상태 아래 */
+.fulfil-group + .fulfil-group {
+  margin-top: 16px;
+}
+.fulfil-group h3 {
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+.fulfil-list {
+  list-style: none;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+.fulfil-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.fulfil-status {
+  white-space: nowrap;
+  text-align: right;
+}
+.fulfil-note {
+  grid-column: 1 / -1;
+}
+@media (min-width: 560px) {
+  .fulfil-list li {
+    grid-template-columns: 15em minmax(0, 1fr);
+  }
+  .fulfil-status {
+    text-align: left;
+  }
+  .fulfil-note {
+    grid-column: 2;
+  }
+}
+.doc-list {
+  padding: 10px 0 4px;
+  border-top: 1px solid var(--rule);
+}

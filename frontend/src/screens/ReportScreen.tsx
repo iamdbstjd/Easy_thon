@@ -32,6 +32,7 @@ export function ReportScreen({
   onEdit,
   onFillMissing,
   onRecheck,
+  onCompare,
   onHome,
 }: {
   report: Report
@@ -39,6 +40,8 @@ export function ReportScreen({
   onEdit: () => void
   /** 4절 아래 "잔금 전 재확인" → S6 (지금 계약서를 이어 쓴다) */
   onRecheck: () => void
+  /** 3절 아래 "수정된 계약서 올리기" → 고친 계약서만 올려 수정 전·후 비교 */
+  onCompare: () => void
   /** [빠진 내용 채우기]: 확인하지 못한 규칙 ID를 넘겨 S4에서 관련 칸으로 바로 이동한다 */
   onFillMissing: (unknownRuleIds: string[]) => void
   onHome: () => void
@@ -125,6 +128,8 @@ export function ReportScreen({
           amendment={amendment}
           address={target?.address ?? null}
           date={formatDate(report.today)}
+          hasContract={Boolean(request?.contract)}
+          onCompare={onCompare}
         />
       ),
     })
@@ -353,12 +358,19 @@ function AmendmentSection({
   amendment,
   address,
   date,
+  hasContract,
+  onCompare,
 }: {
   number: number
   amendment: Amendment
   address: string | null
   date: string
+  /** 지금 검사에 계약서가 있었는지. 없으면(계약 전 요청서) 고친 계약서와 비교할 수 없다 */
+  hasContract: boolean
+  onCompare: () => void
 }) {
+  // 계약서로 검사했고, 고칠 곳이나 특약이 있어야 "고친 계약서"를 비교할 수 있다
+  const canCompare = hasContract && (amendment.fixes.length > 0 || amendment.terms.length > 0)
   const parts: { key: string; title: string; body: ReactNode }[] = []
   if (amendment.fixes.length > 0) {
     parts.push({
@@ -444,6 +456,14 @@ function AmendmentSection({
         </div>
       ))}
       <p className="muted no-print">{SPECIAL_TERMS_NOTE}</p>
+      {canCompare && (
+        <p className="no-print">
+          요청서대로 고친 계약서를 받았나요?{' '}
+          <button type="button" className="link" onClick={onCompare}>
+            수정된 계약서 올리기
+          </button>
+        </p>
+      )}
       <p className="print-only">위 내용을 반영해 주시면 계약을 진행하고 싶습니다. 감사합니다.</p>
       <dl className="rows print-only sign-rows">
         <div className="row">

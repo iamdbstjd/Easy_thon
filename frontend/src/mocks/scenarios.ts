@@ -5,6 +5,8 @@ import type {
   Amendment,
   AmendmentFix,
   CheckRequest,
+  CompareRequest,
+  ContractExtract,
   ComparisonRow,
   RecheckRequest,
   Report,
@@ -750,4 +752,55 @@ export const REQUEST_RECHECK_A: RecheckRequest = {
   baseline_viewed_at: null,
   today: '2026-11-29',
   mode: 'demo',
+}
+
+// ---------------------------------------------------------------------------
+// 수정 전·후 비교 예시: 예시 C의 계약서를 요청서대로 고친 경우
+// (임대인을 등기부상 소유자 "○○부동산신탁(주)"로 바꾸고, 요청서의 특약 4개를 넣었다)
+// ---------------------------------------------------------------------------
+
+export const C_REVISED_CONTRACT: ContractExtract = {
+  ...REQUEST_C.contract!,
+  landlord_names: ['○○부동산신탁(주)'],
+  special_terms: [TERM_NO_LIEN, TERM_JEONSE, TERM_ALWAYS, TERM_TRUST],
+  sources: {
+    ...REQUEST_C.contract!.sources,
+    landlord: '임대인 성명 ○○부동산신탁주식회사',
+    special_terms: [TERM_NO_LIEN, TERM_JEONSE, TERM_ALWAYS, TERM_TRUST].map((t, i) => `${i + 1}. ${t}`).join('\n'),
+  },
+}
+
+export const REQUEST_COMPARE_C: CompareRequest = {
+  before: REQUEST_C,
+  after: { ...REQUEST_C, contract: C_REVISED_CONTRACT },
+  today: TODAY,
+  mode: 'demo',
+}
+
+/** 고친 계약서로 다시 검사한 C: R1(임대인)·R12(보호 특약)이 해당 없음이 된다. 신탁등기·보증금 비율은 남는다 */
+export const REPORT_C_AFTER: Report = {
+  ...REPORT_C,
+  overall: {
+    level: 'red',
+    title: '계약 보류 권장',
+    message: '보증금을 잃을 수 있는 위험 신호가 2개 있어요. 해결되기 전에는 계약을 미루는 걸 권해요.',
+    unknown_note: null,
+  },
+  counts: { red: 2, yellow: 1, unknown: 0, green: 10 },
+  results: REPORT_C.results.map((r): RuleResult => (r.id === 'R1' || r.id === 'R12' ? green(r.id) : r)),
+  comparison: REPORT_C.comparison.map((r) =>
+    r.rule_id === 'R1'
+      ? { ...r, contract: '○○부동산신탁(주)', level: 'green', note: '일치' }
+      : r.rule_id === 'R12'
+        ? { ...r, contract: '보호 특약 있음', level: 'green', note: '특약 있음' }
+        : r,
+  ),
+  amendment: amendment(
+    '계약서 수정 요청서',
+    [],
+    [TERM_JEONSE, TERM_ALWAYS, TERM_TRUST],
+    ['확정일자 부여현황', '국세·지방세 납세증명서', '신탁원부', '신탁회사(수탁자)의 임대 동의서'],
+    C_ADDRESS,
+  ),
+  special_terms: [TERM_JEONSE, TERM_ALWAYS, TERM_TRUST],
 }

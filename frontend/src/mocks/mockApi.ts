@@ -9,6 +9,13 @@
 import { ApiError } from '../api/errors'
 import type {
   CheckRequest,
+  CompareReport,
+  CompareRequest,
+  ContractChange,
+  ContractExtract,
+  Level,
+  RequestFulfillment,
+  RuleDelta,
   RecheckChange,
   RecheckReport,
   RecheckRequest,
@@ -21,9 +28,13 @@ import type {
   Report,
 } from '../api/types'
 import { formatDate, formatWon } from '../lib/format'
+import { ruleNumber } from '../content/labels'
 import {
   amendmentText,
+  C_REVISED_CONTRACT,
   DISCLAIMER,
+  REPORT_C_AFTER,
+  REQUEST_COMPARE_C,
   REQUEST_RECHECK_A,
   REPORT_A,
   REPORT_A_INCOMPLETE,
@@ -110,7 +121,14 @@ export async function check(req: CheckRequest, signal?: AbortSignal): Promise<Re
   // 시나리오 A에서 임대인 이름을 모두 지우면 "확인이 끝나지 않았어요" 리포트를 돌려준다.
   const noLandlord =
     (req.contract === null || req.contract.landlord_names.length === 0) && !req.manual.landlord_name
-  const source = lastScenario === 'A' && noLandlord ? REPORT_A_INCOMPLETE : REPORTS[lastScenario]
+  return reportFor(req, noLandlord)
+}
+
+/** 가짜 검사: 마지막 시나리오의 리포트. C에서 임대인이 신탁회사로 고쳐져 있으면 고친 뒤 리포트 */
+function reportFor(req: CheckRequest, noLandlord = false): Report {
+  const revisedC = lastScenario === 'C' && req.contract?.landlord_names.includes('○○부동산신탁(주)')
+  const source =
+    lastScenario === 'A' && noLandlord ? REPORT_A_INCOMPLETE : revisedC ? REPORT_C_AFTER : REPORTS[lastScenario]
   const report = structuredClone(source)
   if (req.contract === null) withoutContract(report, req)
   return { ...report, mode: req.mode, today: req.today ?? report.today }
@@ -257,6 +275,142 @@ export async function recheck(req: RecheckRequest, signal?: AbortSignal): Promis
     changes,
     term_checks: termChecks,
     actions,
+    disclaimer: DISCLAIMER,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 수정 전·후 비교 (가짜 API): 비교 규칙을 간단히 흉내 낸다
+// ---------------------------------------------------------------------------
+
+/** 계약서 하나만 읽기. C에서는 요청서대로 고친 계약서를, 그 밖에는 원래 계약서를 돌려준다 */
+export async function extractContract(_contract: File, signal?: AbortSignal): Promise<ContractExtract> {
+  await wait(Number(params.get('mockExtractMs') ?? '') || 3000, signal)
+  if (lastScenario === 'C') return structuredClone(C_REVISED_CONTRACT)
+  return structuredClone(REQUESTS[lastScenario].contract as ContractExtract)
+}
+
+export async function demoCompare(signal?: AbortSignal): Promise<CompareRequest> {
+  await wait(250, signal)
+  lastScenario = 'C'
+  return structuredClone(REQUEST_COMPARE_C)
+}
+
+const SEVERITY: Record<Level, number> = { red: 3, yellow: 2, unknown: 1, green: 0 }
+// 특약 반영 여부를 볼 핵심어 (backend rules/compare.py와 같은 기준). 위에서부터 처음 맞는 묶음으로 특약 종류를 정한다
+const TERM_KINDS: { label: string; words: string[] }[] = [
+  { label: '신탁회사 동의서', words: ['동의서', '수탁자'] },
+  { label: '근저당 말소', words: ['말소'] },
+  { label: '반환보증 불가 시 무효', words: ['반환보증', '보증보험'] },
+  { label: '납세증명서·확정일자 제시', words: ['납세증명서', '확정일자'] },
+  { label: '담보 설정 금지', words: ['담보', '저당', '설정하지'] },
+]
+const FIX_RULE: Record<string, string> = { 임대인: 'R1', 소재지: 'R11' }
+const FIX_DONE: Record<string, string> = {
+  R1: '수정 후 임대인이 등기부상 소유자와 같아요',
+  R11: '수정 후 소재지·호수가 등기부와 같아요',
+}
+const FIX_NOT_DONE: Record<string, string> = {
+  'R1:red': '수정 후에도 임대인이 등기부상 소유자와 달라요',
+  'R1:yellow': '수정 후에도 공동 소유자 모두의 동의를 계약서로 확인할 수 없어요',
+  'R11:red': '수정 후에도 호수가 등기부와 달라요',
+  'R11:yellow': '수정 후에도 주소가 등기부와 같은지 확인이 필요해요',
+}
+const NOTE_TERM_DONE = '수정 후 계약서 특약에 있어요'
+const NOTE_TERM_MISSING = '수정 후 계약서 특약에 없어요'
+const NOTE_TERM_ALREADY = '수정 전 계약서에도 있던 특약이라 새로 반영된 것은 아니에요'
+const NOTE_DOCUMENT = '계약서로는 확인할 수 없어요. 받았는지 직접 확인하세요.'
+
+function hasKind(clause: string, words: string[]): boolean {
+  // 말소를 약속하는 문장의 "저당"은 담보 설정 금지가 아니다
+  if (words.includes('설정하지')) return clause.includes('담보') || clause.includes('설정하지') || (clause.includes('저당') && !clause.includes('말소'))
+  return words.some((w) => clause.includes(w))
+}
+
+export async function compare(req: CompareRequest, signal?: AbortSignal): Promise<CompareReport> {
+  await wait(Number(params.get('mockCheckMs') ?? '') || 700, signal)
+  if (!req.before.contract || !req.after.contract) {
+    throw new ApiError('수정 전·후 모두 계약서가 있어야 비교할 수 있어요.', 'INVALID', 422)
+  }
+  const before = reportFor(req.before)
+  const after = reportFor(req.after)
+  const afterLevel = new Map(after.results.map((r) => [r.id, r]))
+  const beforeKeys = new Set((req.before.contract?.special_terms ?? []).map((t) => t.replace(/\s+/g, '')))
+  const afterTerms = req.after.contract?.special_terms ?? []
+
+  const fulfillment: RequestFulfillment[] = []
+  for (const fix of before.amendment?.fixes ?? []) {
+    const rule = FIX_RULE[fix.item]
+    const level = rule ? afterLevel.get(rule)?.level : undefined
+    if (rule && level === 'green') fulfillment.push({ kind: 'fix', item: fix.item, label: fix.item, status: '반영', note: FIX_DONE[rule] })
+    else fulfillment.push({ kind: 'fix', item: fix.item, label: fix.item, status: '미반영', note: FIX_NOT_DONE[`${rule}:${level}`] ?? '수정 후 결과를 확인하지 못했어요' })
+  }
+  for (const term of before.amendment?.terms ?? []) {
+    const termKind = TERM_KINDS.find((k) => k.words.some((w) => term.includes(w)))
+    const words = termKind?.words ?? []
+    const matching = afterTerms.filter((t) => hasKind(t, words))
+    const fresh = matching.filter((t) => !beforeKeys.has(t.replace(/\s+/g, '')))
+    const [status, note] = fresh.length ? (['반영', NOTE_TERM_DONE] as const) : matching.length ? (['미반영', NOTE_TERM_ALREADY] as const) : (['미반영', NOTE_TERM_MISSING] as const)
+    fulfillment.push({ kind: 'term', item: term, label: termKind?.label ?? '추가 특약', status, note })
+  }
+  for (const doc of before.amendment?.documents ?? []) {
+    fulfillment.push({ kind: 'document', item: doc, label: doc, status: '직접 확인', note: NOTE_DOCUMENT })
+  }
+  const counted = fulfillment.filter((f) => f.kind !== 'document')
+  const rate = { done: counted.filter((f) => f.status === '반영').length, total: counted.length }
+
+  const deltas: RuleDelta[] = before.results.map((b) => {
+    const a = afterLevel.get(b.id) ?? b
+    const change = SEVERITY[a.level] < SEVERITY[b.level] ? '개선' : SEVERITY[a.level] > SEVERITY[b.level] ? '악화' : '그대로'
+    return {
+      id: b.id,
+      name: b.name,
+      before: b.level,
+      after: a.level,
+      change,
+      after_title: a.level === 'red' || a.level === 'yellow' ? a.title : '',
+    }
+  })
+  deltas.sort((x, y) => Number(x.change === '그대로') - Number(y.change === '그대로') || ruleNumber(x.id) - ruleNumber(y.id))
+
+  const b = req.before.contract
+  const a = req.after.contract
+  const changes: ContractChange[] = []
+  const field = (name: string, x: string | null | undefined, y: string | null | undefined) => {
+    if ((x ?? null) !== (y ?? null)) changes.push({ field: name, before: x ?? null, after: y ?? null })
+  }
+  const unit = (c: ContractExtract | null) => (c ? [c.unit.dong, c.unit.ho].filter(Boolean).join(' ') || null : null)
+  const won = (n: number | null | undefined) => (n === null || n === undefined ? null : formatWon(n))
+  field('임대인', b?.landlord_names.join(', '), a?.landlord_names.join(', '))
+  field('소재지', b?.address, a?.address)
+  field('동·호', unit(b), unit(a))
+  field('보증금', won(b?.deposit), won(a?.deposit))
+  field('월세', won(b?.monthly_rent), won(a?.monthly_rent))
+  field('계약일', b?.contract_date ? formatDate(b.contract_date) : null, a?.contract_date ? formatDate(a.contract_date) : null)
+  field('잔금일', b?.balance_date ? formatDate(b.balance_date) : null, a?.balance_date ? formatDate(a.balance_date) : null)
+  const beforeTerms = b?.special_terms ?? []
+  for (const t of afterTerms.filter((t) => !beforeTerms.includes(t))) changes.push({ field: '특약 추가', before: null, after: t })
+  for (const t of beforeTerms.filter((t) => !afterTerms.includes(t))) changes.push({ field: '특약 삭제', before: t, after: null })
+
+  const parts: string[] = []
+  if (before.counts.red || after.counts.red) parts.push(`위험 ${before.counts.red}건 → ${after.counts.red}건`)
+  if (before.counts.yellow || after.counts.yellow) parts.push(`주의 ${before.counts.yellow}건 → ${after.counts.yellow}건`)
+  if (rate.total) parts.push(`요청 ${rate.total}건 중 ${rate.done}건 반영`)
+
+  return {
+    mode: req.mode,
+    generated_at: `${req.today ?? '2026-11-14'}T10:00:00+09:00`,
+    today: req.today ?? req.before.today ?? '2026-11-14',
+    address: a?.address ?? req.after.registry.address_road ?? null,
+    before_overall: before.overall,
+    after_overall: after.overall,
+    before_counts: before.counts,
+    after_counts: after.counts,
+    rate,
+    headline: parts.join(', '),
+    fulfillment,
+    rule_deltas: deltas,
+    contract_changes: changes,
     disclaimer: DISCLAIMER,
   }
 }

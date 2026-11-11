@@ -5,6 +5,10 @@
 
 import type {
   Amendment,
+  CompareReport,
+  CompareRequest,
+  Counts,
+  Overall,
   RecheckChange,
   RecheckReport,
   RecheckRequest,
@@ -331,6 +335,83 @@ export function normRecheckReport(raw: unknown): RecheckReport {
     changes: list(v.changes).map(normRecheckChange),
     term_checks: list(v.term_checks).map(normTermCheck),
     actions: strList(v.actions),
+    disclaimer: str(v.disclaimer) ?? '',
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 계약서 변경 추적
+// ---------------------------------------------------------------------------
+
+export function normCompareRequest(raw: unknown): CompareRequest {
+  const v = obj(raw)
+  return {
+    before: normCheckRequest(v.before),
+    after: normCheckRequest(v.after),
+    today: str(v.today),
+    mode: v.mode === 'demo' ? 'demo' : 'live',
+  }
+}
+
+function normOverall(raw: unknown): Overall {
+  const v = obj(raw)
+  return {
+    level: oneOf(v.level, ['red', 'yellow', 'green'] as const) ?? 'yellow',
+    title: str(v.title) ?? '',
+    message: str(v.message) ?? '',
+    unknown_note: str(v.unknown_note),
+  }
+}
+
+function normCounts(raw: unknown): Counts {
+  const v = obj(raw)
+  return {
+    red: num(v.red) ?? 0,
+    yellow: num(v.yellow) ?? 0,
+    unknown: num(v.unknown) ?? 0,
+    green: num(v.green) ?? 0,
+  }
+}
+
+export function normCompareReport(raw: unknown): CompareReport {
+  const v = obj(raw)
+  const rate = obj(v.rate)
+  return {
+    mode: v.mode === 'demo' ? 'demo' : 'live',
+    generated_at: str(v.generated_at) ?? '',
+    today: str(v.today) ?? '',
+    address: str(v.address),
+    before_overall: normOverall(v.before_overall),
+    after_overall: normOverall(v.after_overall),
+    before_counts: normCounts(v.before_counts),
+    after_counts: normCounts(v.after_counts),
+    rate: { done: num(rate.done) ?? 0, total: num(rate.total) ?? 0 },
+    headline: str(v.headline) ?? '',
+    fulfillment: list(v.fulfillment).map((f) => {
+      const x = obj(f)
+      return {
+        kind: oneOf(x.kind, ['fix', 'term', 'document'] as const) ?? 'term',
+        item: str(x.item) ?? '',
+        label: str(x.label) ?? '',
+        status: oneOf(x.status, ['반영', '미반영', '직접 확인'] as const) ?? '직접 확인',
+        note: str(x.note) ?? '',
+      }
+    }),
+    rule_deltas: list(v.rule_deltas).map((d) => {
+      const x = obj(d)
+      return {
+        id: str(x.id) ?? '',
+        name: str(x.name) ?? '',
+        before: oneOf<Level>(x.before, LEVELS) ?? 'unknown',
+        after: oneOf<Level>(x.after, LEVELS) ?? 'unknown',
+        change: oneOf(x.change, ['개선', '악화', '그대로'] as const) ?? '그대로',
+        after_title: str(x.after_title) ?? '',
+      }
+    }),
+    contract_changes: list(v.contract_changes).map((c) => {
+      const x = obj(c)
+      return { field: str(x.field) ?? '', before: str(x.before), after: str(x.after) }
+    }),
     disclaimer: str(v.disclaimer) ?? '',
   }
 }

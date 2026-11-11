@@ -481,7 +481,7 @@ def test_r5_manual_market_label_and_evidence():
 
 
 # =============================================================================
-# §12.1 근저당 item only with 저당 rows
+# 근저당 item only with 저당 rows
 # =============================================================================
 @pytest.mark.parametrize(
     "rows,expected",

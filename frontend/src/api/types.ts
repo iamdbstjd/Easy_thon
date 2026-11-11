@@ -309,6 +309,77 @@ export interface RecheckReport {
 }
 
 // ---------------------------------------------------------------------------
+// 계약서 변경 추적 (수정 전·후 비교)
+// ---------------------------------------------------------------------------
+
+/** 같은 등기부로, 수정 전 계약서와 수정 후 계약서의 검사 입력을 비교한다. 저장하지 않는다. */
+export interface CompareRequest {
+  /** 수정 전 (방금 검사한 입력) */
+  before: CheckRequest
+  /** 수정 후 (계약서만 바꾼 입력) */
+  after: CheckRequest
+  /** 없으면 before.today, 그것도 없으면 현재 한국 날짜 */
+  today: ISODate | null
+  mode: Mode
+}
+
+/** 수정 전 요청서 항목 하나의 반영 여부 */
+export interface RequestFulfillment {
+  /** 고칠 곳 · 특약 · 받을 서류 */
+  kind: 'fix' | 'term' | 'document'
+  /** 화면용 (고칠 곳은 항목 이름, 특약·서류는 문안) */
+  item: string
+  /** 짧은 이름 (특약: "담보 설정 금지" · "반환보증 불가 시 무효" · "납세증명서·확정일자 제시" · "신탁회사 동의서" · "근저당 말소") */
+  label: string
+  status: '반영' | '미반영' | '직접 확인'
+  note: string
+}
+
+/** 규칙 하나의 수정 전·후 등급 */
+export interface RuleDelta {
+  id: string
+  name: string
+  before: Level
+  after: Level
+  change: '개선' | '악화' | '그대로'
+  /** 수정 후에도 🔴·🟡이면 그 상황 한 줄 */
+  after_title: string
+}
+
+/** 바뀐 계약 내용 한 줄 */
+export interface ContractChange {
+  /** "임대인" · "소재지" · "동·호" · "보증금" · "월세" · "계약일" · "잔금일" · "특약 추가" · "특약 삭제" */
+  field: string
+  before: string | null
+  after: string | null
+}
+
+export interface FulfillmentRate {
+  done: number
+  /** 고칠 곳 + 특약 (받을 서류는 넣지 않는다) */
+  total: number
+}
+
+export interface CompareReport {
+  mode: Mode
+  generated_at: ISODateTime
+  today: ISODate
+  address: string | null
+  before_overall: Overall
+  after_overall: Overall
+  before_counts: Counts
+  after_counts: Counts
+  rate: FulfillmentRate
+  /** 예: "위험 3건 → 2건, 요청 5건 중 5건 반영" */
+  headline: string
+  fulfillment: RequestFulfillment[]
+  /** 13개, 바뀐 것 먼저 */
+  rule_deltas: RuleDelta[]
+  contract_changes: ContractChange[]
+  disclaimer: string
+}
+
+// ---------------------------------------------------------------------------
 // 9장 기타 응답과 오류
 // ---------------------------------------------------------------------------
 

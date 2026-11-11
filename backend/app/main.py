@@ -33,6 +33,9 @@ from app.errors import ApiError, api_error_handler, error_response  # noqa: E402
 from app.rules import build_report  # noqa: E402
 from app.schemas import (  # noqa: E402
     CheckRequest,
+    CompareReport,
+    CompareRequest,
+    ContractExtract,
     ErrorResponse,
     ExtractResponse,
     HealthResponse,
@@ -48,8 +51,15 @@ KST = dt.timezone(dt.timedelta(hours=9))
 DEMO_DIR: Path = config.BACKEND_DIR / "demo"  # 테스트에서 바꿔 끼울 수 있다
 DEMO_SCENARIOS = ("A", "B", "C")
 RECHECK_DEMO = "recheck-A"  # 계약 후 재확인 예시
+COMPARE_DEMO = "compare-C"  # 수정 전·후 비교 예시
 CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]  # 개발용 (Vite)
 EXTRACT_PATH = "/api/extract"
+EXTRACT_CONTRACT_PATH = "/api/extract/contract"  # 수정된 계약서 하나만
+# 업로드 경로별 요청 본문 상한. 넘으면 본문을 더 읽지 않고 UNSUPPORTED_FILE.
+UPLOAD_REQUEST_LIMITS = {
+    EXTRACT_PATH: uploads.MAX_REQUEST_BYTES,
+    EXTRACT_CONTRACT_PATH: uploads.MAX_SINGLE_FILE_REQUEST_BYTES,
+}
 DISCONNECT_POLL_SECONDS = 0.5  # 추출 중 클라이언트 연결 끊김을 확인하는 간격
 
 # multipart 파일을 디스크 임시 파일로 넘기지 않고 메모리에 둔다.
@@ -150,8 +160,9 @@ class RequestContextMiddleware:
             await send(message)
 
         try:
-            if scope["path"] == EXTRACT_PATH and scope["method"] == "POST":
-                body = await _read_body_capped(scope, receive, uploads.MAX_REQUEST_BYTES)
+            limit = UPLOAD_REQUEST_LIMITS.get(scope["path"])
+            if limit is not None and scope["method"] == "POST":
+                body = await _read_body_capped(scope, receive, limit)
                 if body is None:  # 상한을 넘었다. 나머지는 읽지 않고 바로 거절한다.
                     logger.info("error code=UNSUPPORTED_FILE status=400 reason=request_too_large")
                     await error_response("UNSUPPORTED_FILE")(scope, receive, send_with_id)
@@ -209,8 +220,8 @@ app.add_exception_handler(ApiError, api_error_handler)
 
 @app.exception_handler(RequestValidationError)
 async def _validation_error_handler(request: Request, exc: RequestValidationError):
-    if request.url.path == "/api/extract":
-        # 등기부 파일이 빠졌거나 파일이 아닌 값이 왔다
+    if request.url.path in UPLOAD_REQUEST_LIMITS:
+        # 파일이 빠졌거나 파일이 아닌 값이 왔다
         logger.info("error code=UNSUPPORTED_FILE status=400 reason=form_invalid")
         return error_response("UNSUPPORTED_FILE")
     # 그 밖(/api/check 등)은 FastAPI 기본 형식(422, detail 목록). 로그에는 위치만 남긴다.
@@ -284,6 +295,21 @@ async def extract_route(
     return privacy.mask_resident_ids(result)
 
 
+@app.post(
+    EXTRACT_CONTRACT_PATH,
+    response_model=ContractExtract,
+    responses={400: _ERROR_DOC, 422: _ERROR_DOC, 502: _ERROR_DOC, 503: _ERROR_DOC},
+)
+async def extract_contract_route(
+    request: Request,
+    contract: UploadFile = File(..., description="수정된 계약서 사진(JPG·PNG·WEBP) 또는 PDF (10MB 이하)"),
+) -> ContractExtract:
+    """수정된 계약서 하나만 읽는다. 검사·호출·마감·오류·주민등록번호 가림은 /api/extract와 같다."""
+    contract_doc = await run_in_threadpool(uploads.validate_contract, await _read_upload(contract))
+    result = await _cancel_if_client_leaves(request, extract.extract_contract_only(contract_doc))
+    return privacy.mask_resident_ids(result)
+
+
 def fill_public_data(req: CheckRequest) -> CheckRequest:
     """TODO: 비어 있는 building·market을 공공 API로 채운다. 지금은 그대로 돌려준다.
 
@@ -328,6 +354,24 @@ def recheck_route(req: RecheckRequest) -> RecheckReport:
     return privacy.mask_resident_ids(build_recheck(req))
 
 
+def build_compare(req: CompareRequest) -> CompareReport:
+    """규칙 엔진의 build_compare를 부를 때 가져온다. 아직 없으면 이 라우트만 500이다."""
+    from app.rules import build_compare as rules_build_compare
+
+    return rules_build_compare(req)
+
+
+@app.post("/api/compare", response_model=CompareReport)
+def compare_route(req: CompareRequest) -> CompareReport:
+    """수정 전·후 계약서 비교. AI를 부르지 않는다.
+
+    today가 없으면 수정 전 입력의 today, 그것도 없으면 현재 한국 날짜를 쓴다. 응답의 주민등록번호 모양은 가린다.
+    """
+    if req.today is None:
+        req = req.model_copy(update={"today": req.before.today or today_kst()})
+    return privacy.mask_resident_ids(build_compare(req))
+
+
 def _load_demo(name: str, model: type[M]) -> M:
     """backend/demo/{name}.json을 읽어 검증한다. 없으면 NOT_FOUND, 형식이 틀리면 INTERNAL_ERROR."""
     path = DEMO_DIR / f"{name}.json"
@@ -343,7 +387,19 @@ def _load_demo(name: str, model: type[M]) -> M:
     return privacy.mask_resident_ids(req.model_copy(update={"mode": "demo"}))
 
 
-# /api/demo/{scenario}보다 먼저 선언해야 "recheck-A"가 시나리오로 잡히지 않는다.
+# 아래 예시들은 /api/demo/{scenario}보다 먼저 선언해야 시나리오 이름으로 잡히지 않는다.
+@app.get(f"/api/demo/{COMPARE_DEMO}", response_model=CompareRequest, responses={404: _ERROR_DOC})
+def compare_demo_route() -> CompareRequest:
+    """수정 전·후 비교 예시의 /api/compare 입력 전체. 안쪽 두 검사 입력도 데모 모드다."""
+    req = _load_demo(COMPARE_DEMO, CompareRequest)
+    return req.model_copy(
+        update={
+            "before": req.before.model_copy(update={"mode": "demo"}),
+            "after": req.after.model_copy(update={"mode": "demo"}),
+        }
+    )
+
+
 @app.get(f"/api/demo/{RECHECK_DEMO}", response_model=RecheckRequest, responses={404: _ERROR_DOC})
 def recheck_demo_route() -> RecheckRequest:
     """계약 후 재확인 예시의 /api/recheck 입력 전체."""

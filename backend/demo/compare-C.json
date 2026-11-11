@@ -1,0 +1,239 @@
+{
+  "before": {
+    "registry": {
+      "is_registry": true,
+      "registry_type": "집합건물",
+      "viewed_at": "2026-11-14T08:47:15+09:00",
+      "address_jibun": "경기도 용인시 수지구 죽전동 789-1",
+      "address_road": "경기도 용인시 수지구 죽전로 78",
+      "building_name": "○○파크빌",
+      "unit": {
+        "dong": null,
+        "ho": "302호",
+        "floor": "3층",
+        "area_m2": 59.82
+      },
+      "building_use_lines": [
+        "철근콘크리트구조 (철근)콘크리트지붕 4층 공동주택(다세대주택)",
+        "1층 다세대주택 70.40㎡",
+        "2층 다세대주택 126.80㎡",
+        "3층 다세대주택 126.80㎡",
+        "4층 다세대주택 110.50㎡"
+      ],
+      "gapgu": [
+        {
+          "rank": "1",
+          "purpose": "소유권보존",
+          "received_at": "2016-05-12",
+          "cause": null,
+          "holders": [
+            "정○○"
+          ],
+          "amount": null,
+          "is_cancelled": false,
+          "page": 2,
+          "source_text": "1 소유권보존 2016년5월12일 제34567호 소유자 정○○ 620830-******* 경기도 성남시 분당구 ○○로 30"
+        },
+        {
+          "rank": "2",
+          "purpose": "소유권이전",
+          "received_at": "2026-08-26",
+          "cause": "매매",
+          "holders": [
+            "이○○"
+          ],
+          "amount": null,
+          "is_cancelled": false,
+          "page": 2,
+          "source_text": "2 소유권이전 2026년8월26일 제98765호 2026년7월15일 매매 소유자 이○○ 900101-******* 경기도 용인시 수지구 ○○로 78 거래가액 금210,000,000원"
+        },
+        {
+          "rank": "3",
+          "purpose": "소유권이전, 신탁",
+          "received_at": "2026-08-26",
+          "cause": "신탁",
+          "holders": [
+            "○○부동산신탁(주)"
+          ],
+          "amount": null,
+          "is_cancelled": false,
+          "page": 2,
+          "source_text": "3 소유권이전 2026년8월26일 제98766호 2026년8월26일 신탁 수탁자 ○○부동산신탁주식회사 110111-******* 서울특별시 강남구 테헤란로 ○○ 신탁 신탁원부 제2026-5678호"
+        }
+      ],
+      "eulgu": [],
+      "unreadable": []
+    },
+    "contract": {
+      "is_contract": true,
+      "landlord_names": [
+        "이○○"
+      ],
+      "agent_name": null,
+      "address": "경기도 용인시 수지구 죽전동 789-1 ○○파크빌 302호",
+      "unit": {
+        "dong": null,
+        "ho": "302호"
+      },
+      "lease_type": "전세",
+      "deposit": 180000000,
+      "monthly_rent": null,
+      "contract_date": "2026-11-14",
+      "balance_date": "2026-12-01",
+      "move_in_date": "2026-12-01",
+      "lease_end": "2028-11-30",
+      "special_terms": [],
+      "sources": {
+        "landlord": "임대인 성명 이○○ 주민등록번호 900101-******* 주소 경기도 용인시 수지구 ○○로 78",
+        "address": "소재지 경기도 용인시 수지구 죽전동 789-1 ○○파크빌 302호",
+        "deposit": "보증금 금 일억팔천만원정 (₩180,000,000)",
+        "special_terms": null
+      }
+    },
+    "manual": {
+      "deposit": null,
+      "monthly_rent": null,
+      "contract_date": null,
+      "landlord_name": null,
+      "prior_deposits": null,
+      "market_price": null
+    },
+    "building": {
+      "main_use": "공동주택(다세대주택)",
+      "unit_use": "다세대주택",
+      "is_violating": false,
+      "source": "pdf",
+      "source_text": "집합건축물대장(전유부) ○○파크빌 302호 용도 다세대주택 / 위반건축물 표시 없음"
+    },
+    "market": {
+      "price": 200000000,
+      "method": "same_building",
+      "deals": 2,
+      "period": "2025-12 ~ 2026-11"
+    },
+    "today": "2026-11-14",
+    "mode": "demo"
+  },
+  "after": {
+    "registry": {
+      "is_registry": true,
+      "registry_type": "집합건물",
+      "viewed_at": "2026-11-14T08:47:15+09:00",
+      "address_jibun": "경기도 용인시 수지구 죽전동 789-1",
+      "address_road": "경기도 용인시 수지구 죽전로 78",
+      "building_name": "○○파크빌",
+      "unit": {
+        "dong": null,
+        "ho": "302호",
+        "floor": "3층",
+        "area_m2": 59.82
+      },
+      "building_use_lines": [
+        "철근콘크리트구조 (철근)콘크리트지붕 4층 공동주택(다세대주택)",
+        "1층 다세대주택 70.40㎡",
+        "2층 다세대주택 126.80㎡",
+        "3층 다세대주택 126.80㎡",
+        "4층 다세대주택 110.50㎡"
+      ],
+      "gapgu": [
+        {
+          "rank": "1",
+          "purpose": "소유권보존",
+          "received_at": "2016-05-12",
+          "cause": null,
+          "holders": [
+            "정○○"
+          ],
+          "amount": null,
+          "is_cancelled": false,
+          "page": 2,
+          "source_text": "1 소유권보존 2016년5월12일 제34567호 소유자 정○○ 620830-******* 경기도 성남시 분당구 ○○로 30"
+        },
+        {
+          "rank": "2",
+          "purpose": "소유권이전",
+          "received_at": "2026-08-26",
+          "cause": "매매",
+          "holders": [
+            "이○○"
+          ],
+          "amount": null,
+          "is_cancelled": false,
+          "page": 2,
+          "source_text": "2 소유권이전 2026년8월26일 제98765호 2026년7월15일 매매 소유자 이○○ 900101-******* 경기도 용인시 수지구 ○○로 78 거래가액 금210,000,000원"
+        },
+        {
+          "rank": "3",
+          "purpose": "소유권이전, 신탁",
+          "received_at": "2026-08-26",
+          "cause": "신탁",
+          "holders": [
+            "○○부동산신탁(주)"
+          ],
+          "amount": null,
+          "is_cancelled": false,
+          "page": 2,
+          "source_text": "3 소유권이전 2026년8월26일 제98766호 2026년8월26일 신탁 수탁자 ○○부동산신탁주식회사 110111-******* 서울특별시 강남구 테헤란로 ○○ 신탁 신탁원부 제2026-5678호"
+        }
+      ],
+      "eulgu": [],
+      "unreadable": []
+    },
+    "contract": {
+      "is_contract": true,
+      "landlord_names": [
+        "○○부동산신탁(주)"
+      ],
+      "agent_name": null,
+      "address": "경기도 용인시 수지구 죽전동 789-1 ○○파크빌 302호",
+      "unit": {
+        "dong": null,
+        "ho": "302호"
+      },
+      "lease_type": "전세",
+      "deposit": 180000000,
+      "monthly_rent": null,
+      "contract_date": "2026-11-14",
+      "balance_date": "2026-12-01",
+      "move_in_date": "2026-12-01",
+      "lease_end": "2028-11-30",
+      "special_terms": [
+        "임대인은 잔금일 다음 날까지 저당권 등 담보권을 설정하지 않는다. 위반 시 임차인은 계약을 해제할 수 있고, 임대인은 받은 금액 전부를 즉시 반환한다.",
+        "임차인이 전세보증금 반환보증에 가입할 수 없는 경우 계약은 무효로 하며, 임대인은 계약금을 즉시 반환한다.",
+        "임대인은 계약 체결 시 국세·지방세 납세증명서와 확정일자 부여현황을 제시한다.",
+        "임대인은 잔금일 전까지 수탁자(신탁회사)의 임대 동의서를 제출한다. 제출하지 못하면 임차인은 계약을 해제할 수 있고, 임대인은 받은 금액 전부를 즉시 반환한다."
+      ],
+      "sources": {
+        "landlord": "임대인 성명 ○○부동산신탁(주) 법인등록번호 110111-******* 주소 서울특별시 강남구 테헤란로 ○○",
+        "address": "소재지 경기도 용인시 수지구 죽전동 789-1 ○○파크빌 302호",
+        "deposit": "보증금 금 일억팔천만원정 (₩180,000,000)",
+        "special_terms": "1. 임대인은 잔금일 다음 날까지 저당권 등 담보권을 설정하지 않는다. 위반 시 임차인은 계약을 해제할 수 있고, 임대인은 받은 금액 전부를 즉시 반환한다. 2. 임차인이 전세보증금 반환보증에 가입할 수 없는 경우 계약은 무효로 하며, 임대인은 계약금을 즉시 반환한다. 3. 임대인은 계약 체결 시 국세·지방세 납세증명서와 확정일자 부여현황을 제시한다. 4. 임대인은 잔금일 전까지 수탁자(신탁회사)의 임대 동의서를 제출한다. 제출하지 못하면 임차인은 계약을 해제할 수 있고, 임대인은 받은 금액 전부를 즉시 반환한다."
+      }
+    },
+    "manual": {
+      "deposit": null,
+      "monthly_rent": null,
+      "contract_date": null,
+      "landlord_name": null,
+      "prior_deposits": null,
+      "market_price": null
+    },
+    "building": {
+      "main_use": "공동주택(다세대주택)",
+      "unit_use": "다세대주택",
+      "is_violating": false,
+      "source": "pdf",
+      "source_text": "집합건축물대장(전유부) ○○파크빌 302호 용도 다세대주택 / 위반건축물 표시 없음"
+    },
+    "market": {
+      "price": 200000000,
+      "method": "same_building",
+      "deals": 2,
+      "period": "2025-12 ~ 2026-11"
+    },
+    "today": "2026-11-14",
+    "mode": "demo"
+  },
+  "today": "2026-11-14",
+  "mode": "demo"
+}

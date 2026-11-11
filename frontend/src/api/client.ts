@@ -5,6 +5,9 @@
 import { ApiError, ERROR_MESSAGES } from './errors'
 import {
   normCheckRequest,
+  normCompareReport,
+  normCompareRequest,
+  normContract,
   normExtractResponse,
   normRecheckReport,
   normRecheckRequest,
@@ -13,6 +16,9 @@ import {
 import type {
   ChecklistItem,
   CheckRequest,
+  CompareReport,
+  CompareRequest,
+  ContractExtract,
   DemoScenario,
   ExtractResponse,
   HealthResponse,
@@ -95,6 +101,46 @@ export async function extract(
     data = await sendJson('/api/extract', { method: 'POST', body: form, signal })
   }
   return normExtractResponse(data)
+}
+
+/** POST /api/extract/contract: 계약서 하나만 읽는다 (multipart 필드 contract) */
+export async function extractContract(contract: File, signal?: AbortSignal): Promise<ContractExtract> {
+  let data: unknown
+  if (IS_MOCK) {
+    data = await (await loadMocks()).extractContract(contract, signal)
+  } else {
+    const form = new FormData()
+    form.append('contract', contract, contract.name)
+    data = await sendJson('/api/extract/contract', { method: 'POST', body: form, signal })
+  }
+  const result = normContract(data)
+  if (!result) throw new ApiError('계약서를 읽지 못했어요. 계약서 사진이나 PDF를 다시 올려 주세요.', 'NOT_CONTRACT')
+  return result
+}
+
+/** POST /api/compare: 수정 전·후 검사 입력 → 비교서 */
+export async function compare(req: CompareRequest, signal?: AbortSignal): Promise<CompareReport> {
+  // 서버도 422로 거절한다. 계약서 없이 검사한 결과는 비교할 수 없다
+  if (!req.before.contract || !req.after.contract) {
+    throw new ApiError('수정 전·후 모두 계약서가 있어야 비교할 수 있어요.', 'INVALID', 422)
+  }
+  const data = IS_MOCK
+    ? await (await loadMocks()).compare(req, signal)
+    : await sendJson('/api/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req),
+        signal,
+      })
+  return normCompareReport(data)
+}
+
+/** GET /api/demo/compare-C (예시) → 비교 입력. 예시의 today·mode를 그대로 쓴다 */
+export async function demoCompare(signal?: AbortSignal): Promise<CompareRequest> {
+  const data = IS_MOCK
+    ? await (await loadMocks()).demoCompare(signal)
+    : await sendJson('/api/demo/compare-C', { signal })
+  return normCompareRequest(data)
 }
 
 /** POST /api/check (JSON) → 리포트 */

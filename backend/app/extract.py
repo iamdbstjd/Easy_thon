@@ -20,7 +20,7 @@ import math
 import email.utils
 import os
 import time
-from typing import Any, NamedTuple, TypeVar
+from typing import Any, Awaitable, Callable, NamedTuple, TypeVar
 
 import anthropic
 from pydantic import BaseModel, ValidationError
@@ -61,6 +61,7 @@ _client: Any = None  # anthropic.AsyncAnthropic. 처음 필요할 때 만든다.
 _sleep = asyncio.sleep  # 재시도 전 대기. 테스트에서 바꿔 끼운다.
 
 M = TypeVar("M", bound=BaseModel)
+T = TypeVar("T")
 
 
 def has_credentials() -> bool:
@@ -332,6 +333,16 @@ async def _extract_both(
     return results[0], (results[1] if contract is not None else None)  # type: ignore[return-value]
 
 
+async def _with_deadline(work: Callable[[float], Awaitable[T]]) -> T:
+    """work(deadline)를 마감 시간(deadline_seconds) 안에 끝낸다. 넘으면 진행 중인 호출을 취소하고 AI_FAILED."""
+    budget = deadline_seconds()
+    deadline = asyncio.get_running_loop().time() + budget
+    try:
+        return await asyncio.wait_for(work(deadline), timeout=budget)
+    except asyncio.TimeoutError:
+        raise ApiError("AI_FAILED", reason=f"deadline_{budget:g}s") from None
+
+
 async def extract_documents(registry: DocInput, contract: DocInput | None, *, client: Any = None) -> ExtractResponse:
     """등기부(필수)와 계약서(선택)를 병렬로 읽는다.
 
@@ -339,14 +350,18 @@ async def extract_documents(registry: DocInput, contract: DocInput | None, *, cl
     - 등기부 오류를 계약서 오류보다 먼저 알린다. 등기부가 실패하면 계약서는 기다리지 않는다.
     """
     client = client if client is not None else get_client()
-    budget = deadline_seconds()
-    deadline = asyncio.get_running_loop().time() + budget
     started = time.perf_counter()
-    try:
-        registry_result, contract_result = await asyncio.wait_for(
-            _extract_both(client, registry, contract, deadline), timeout=budget
-        )
-    except asyncio.TimeoutError:
-        raise ApiError("AI_FAILED", reason=f"deadline_{budget:g}s") from None
+    registry_result, contract_result = await _with_deadline(
+        lambda deadline: _extract_both(client, registry, contract, deadline)
+    )
     logger.info("extract done docs=%d took=%.1fs", 1 + (contract is not None), time.perf_counter() - started)
     return ExtractResponse(registry=registry_result, contract=contract_result)
+
+
+async def extract_contract_only(contract: DocInput, *, client: Any = None) -> ContractExtract:
+    """계약서 하나만 읽는다 (수정된 계약서). 호출·재시도·마감·NOT_CONTRACT는 extract_documents와 같다."""
+    client = client if client is not None else get_client()
+    started = time.perf_counter()
+    result = await _with_deadline(lambda deadline: extract_contract(client, contract, deadline=deadline))
+    logger.info("extract done docs=1 contract_only took=%.1fs", time.perf_counter() - started)
+    return result

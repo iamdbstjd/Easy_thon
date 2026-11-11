@@ -1,8 +1,19 @@
 import { useRef, useState } from 'react'
-import { check, demo, demoRecheck, extract, recheck } from './api/client'
+import {
+  check,
+  compare,
+  demo,
+  demoCompare,
+  demoRecheck,
+  extract,
+  extractContract,
+  recheck,
+} from './api/client'
 import { ApiError, errorMessage, isFileError } from './api/errors'
 import type {
   CheckRequest,
+  CompareReport,
+  CompareRequest,
   DemoScenario,
   Mode,
   RecheckReport,
@@ -10,6 +21,8 @@ import type {
   Report,
 } from './api/types'
 import { Header } from './components/Header'
+import { CompareReportScreen } from './screens/CompareReportScreen'
+import { CompareUploadScreen } from './screens/CompareUploadScreen'
 import { ErrorScreen } from './screens/ErrorScreen'
 import type { ErrorPhase } from './screens/ErrorScreen'
 import { ProgressScreen } from './screens/ProgressScreen'
@@ -27,7 +40,10 @@ import type { UploadDraft } from './state/upload'
 
 // S1 시작 → S2 업로드 → S3 분석 중 → S4 내용 확인·수정 → S5 리포트
 // S6 계약 후 재확인(올리기 → 날짜 확인) → S3 → S7 계약 후 재확인서
+// S5 → 수정된 계약서 올리기 → S3 → S8 수정 전·후 비교서 → S5(수정 후)
 type View =
+  | { name: 'compare-upload' }
+  | { name: 'compare-report' }
   | { name: 'recheck' }
   | { name: 'recheck-report' }
   | { name: 'start' }
@@ -68,6 +84,15 @@ export default function App() {
   const [recheckDraft, setRecheckDraft] = useState<RecheckRequest | null>(null)
   const [recheckReport, setRecheckReport] = useState<RecheckReport | null>(null)
   const [recheckDemoLoading, setRecheckDemoLoading] = useState(false)
+
+  // 수정 전·후 비교. 수정 전 입력은 지금의 request(메모리)이고, 저장하지 않는다.
+  const [compareFile, setCompareFile] = useState<File | null>(null)
+  /** 비교 중인 요청 (다시 시도할 때 쓴다) */
+  const [compareDraft, setCompareDraft] = useState<CompareRequest | null>(null)
+  const [compareReport, setCompareReport] = useState<CompareReport | null>(null)
+  /** 수정 후 검사 입력과 결과: [수정된 계약서로 검토서 보기]를 누르면 지금의 검토서가 된다 */
+  const [compareAfter, setCompareAfter] = useState<{ request: CheckRequest; report: Report } | null>(null)
+  const [compareDemoLoading, setCompareDemoLoading] = useState(false)
 
   // 지금 진행 중인 요청. 새 요청을 시작하거나 취소하면 이전 요청의 결과는 버린다.
   const running = useRef<{ id: number; controller: AbortController | null }>({ id: 0, controller: null })
@@ -283,8 +308,98 @@ export default function App() {
     }
   }
 
+  /** S5 3절 → 수정된 계약서 올리기 */
+  function openCompare() {
+    cancelRunning()
+    setCompareFile(null)
+    setView({ name: 'compare-upload' })
+  }
+
+  /** 비교와 수정 후 검사를 함께 돌린다 (같은 입력이면 같은 결과, AI를 부르지 않는다) */
+  async function compareAndCheck(req: CompareRequest, task: Task) {
+    const [cmp, afterReport] = await Promise.all([compare(req, task.signal), check(req.after, task.signal)])
+    if (!task.isCurrent()) return
+    setCompareReport(cmp)
+    setCompareAfter({ request: req.after, report: afterReport })
+    setView({ name: 'compare-report' })
+  }
+
+  /** 고친 계약서 읽기 → 비교 (수정 전 = 지금의 검사 입력, 수정 후 = 계약서만 바꾼 입력) */
+  async function runCompareExtract() {
+    const before = request
+    const file = compareFile
+    if (!before || !file) return
+    const task = beginTask()
+    let stage: ErrorPhase = 'compare-extract'
+    setView({ name: 'progress', phase: 'compare-extract', startedAt: Date.now(), hasContract: true, source: 'live' })
+    try {
+      const contract = await extractContract(file, task.signal)
+      if (!task.isCurrent()) return
+      const req: CompareRequest = {
+        before,
+        after: { ...before, contract },
+        today: before.today,
+        mode: before.mode,
+      }
+      setCompareDraft(req)
+      stage = 'compare'
+      // 수정된 계약서는 방금 실제로 읽었으므로 "완료"로 보인다 (수정 전이 예시여도)
+      setView({ name: 'progress', phase: 'compare', startedAt: Date.now(), hasContract: true, source: 'live' })
+      await compareAndCheck(req, task)
+    } catch (err) {
+      if (task.isCurrent()) showError(stage, task, err)
+    } finally {
+      task.finish()
+    }
+  }
+
+  /** 비교만 다시 시도 */
+  async function runCompare(req: CompareRequest) {
+    const task = beginTask()
+    const source = compareFile ? 'live' : req.mode // 올린 계약서가 있으면 그 계약서를 읽은 비교다
+    setView({ name: 'progress', phase: 'compare', startedAt: Date.now(), hasContract: true, source })
+    try {
+      await compareAndCheck(req, task)
+    } catch (err) {
+      if (task.isCurrent()) showError('compare', task, err)
+    } finally {
+      task.finish()
+    }
+  }
+
+  /** S1 예시 "C 집, 요청서대로 계약서를 고친 경우" → S8 */
+  async function loadCompareDemo() {
+    const task = beginTask()
+    setCompareDemoLoading(true)
+    setCompareFile(null)
+    try {
+      const req = await demoCompare(task.signal)
+      if (!task.isCurrent()) return
+      setCompareDraft(req)
+      await compareAndCheck(req, task)
+    } catch (err) {
+      if (task.isCurrent()) showError('compare-demo', task, err)
+    } finally {
+      task.finish()
+      setCompareDemoLoading(false)
+    }
+  }
+
+  /** S8 [수정된 계약서로 검토서 보기]: 수정 후 입력·결과가 지금의 검토서가 된다 */
+  function openAfterReport() {
+    if (!compareAfter) return
+    setRequest(compareAfter.request)
+    setReport(compareAfter.report)
+    setReviewFocus(null)
+    setView({ name: 'report' })
+  }
+
   function goHome() {
     cancelRunning()
+    setCompareFile(null)
+    setCompareDraft(null)
+    setCompareReport(null)
+    setCompareAfter(null)
     setReviewFocus(null)
     setChecking(false)
     setDemoLoading(null)
@@ -306,13 +421,16 @@ export default function App() {
     else if (phase === 'recheck-extract') {
       setRecheckDraft(null)
       setView({ name: 'recheck' })
-    } else setView({ name: 'recheck' })
+    } else if (phase === 'compare-extract' || phase === 'compare') setView({ name: 'compare-upload' })
+    else setView({ name: 'recheck' })
   }
 
   const demoMarker =
-    view.name === 'recheck-report'
+    view.name === 'compare-report'
+      ? compareReport?.mode === 'demo'
+      : view.name === 'recheck-report'
       ? recheckReport?.mode === 'demo'
-      : view.name === 'progress' && view.phase === 'recheck'
+      : view.name === 'progress' && (view.phase === 'recheck' || view.phase === 'compare')
         ? view.source === 'demo'
         : view.name === 'report'
       ? report?.mode === 'demo'
@@ -332,6 +450,8 @@ export default function App() {
           onRecheck={() => openRecheck(null)}
           onRecheckDemo={loadRecheckDemo}
           recheckDemoLoading={recheckDemoLoading}
+          onCompareDemo={loadCompareDemo}
+          compareDemoLoading={compareDemoLoading}
         />
       )
       break
@@ -367,6 +487,9 @@ export default function App() {
             else if (phase === 'recheck-extract') void runRecheckExtract()
             else if (phase === 'recheck' && recheckDraft) void runRecheck(recheckDraft)
             else if (phase === 'recheck-demo') void loadRecheckDemo()
+            else if (phase === 'compare-extract') void runCompareExtract()
+            else if (phase === 'compare' && compareDraft) void runCompare(compareDraft)
+            else if (phase === 'compare-demo') void loadCompareDemo()
             else void loadDemo(lastDemo)
           }}
           onBack={() => {
@@ -376,6 +499,8 @@ export default function App() {
               setRecheckDraft(null)
               setView({ name: 'recheck' })
             } else if (phase === 'recheck' && recheckDraft) setView({ name: 'recheck' })
+            else if (phase === 'compare-extract') setView({ name: 'compare-upload' })
+            else if (phase === 'compare' && report) setView({ name: 'report' })
             else goHome()
           }}
           onDemo={loadDemo}
@@ -408,6 +533,7 @@ export default function App() {
             setReviewFocus(unknownRuleIds)
             setView({ name: 'review' })
           }}
+          onCompare={openCompare}
           onRecheck={() =>
             openRecheck(
               request?.contract
@@ -417,6 +543,22 @@ export default function App() {
           }
           onHome={goHome}
         />
+      ) : null
+      break
+    case 'compare-upload':
+      screen = (
+        <CompareUploadScreen
+          file={compareFile}
+          setFile={setCompareFile}
+          onSubmit={runCompareExtract}
+          onBack={() => setView(report ? { name: 'report' } : { name: 'start' })}
+          onHome={goHome}
+        />
+      )
+      break
+    case 'compare-report':
+      screen = compareReport ? (
+        <CompareReportScreen report={compareReport} onOpenAfter={openAfterReport} onHome={goHome} />
       ) : null
       break
     case 'recheck':

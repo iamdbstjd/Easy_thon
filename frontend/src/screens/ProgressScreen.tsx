@@ -2,7 +2,13 @@ import { useEffect, useState } from 'react'
 import type { Mode } from '../api/types'
 import { useScreenFocus } from '../lib/useScreenFocus'
 
-export type ProgressPhase = 'extract' | 'check' | 'recheck-extract' | 'recheck'
+export type ProgressPhase =
+  | 'extract'
+  | 'check'
+  | 'recheck-extract'
+  | 'recheck'
+  | 'compare-extract'
+  | 'compare'
 
 /** 이 시간이 지나면 "보통 1분 안에 끝나요" 대신 솔직한 안내를 보여준다 */
 const SLOW_AFTER_S = 60
@@ -20,6 +26,21 @@ interface Step {
  */
 function stepsFor(phase: ProgressPhase, hasContract: boolean, source: Mode): Step[] {
   // 계약 후 재확인: 계약서는 새로 읽거나(hasContract) 앞 화면에서 이어 받는다
+  // 수정 전·후 비교: 고친 계약서만 읽고, 그다음 검사와 비교를 함께 돌린다
+  if (phase === 'compare-extract') {
+    return [
+      { label: '수정된 계약서', status: '진행 중', active: true },
+      { label: '위험 신호 확인', status: '대기', active: false },
+      { label: '수정 전·후 비교', status: '대기', active: false },
+    ]
+  }
+  if (phase === 'compare') {
+    return [
+      { label: '수정된 계약서', status: source === 'demo' ? '예시 값' : '완료', active: false },
+      { label: '위험 신호 확인', status: '진행 중', active: true },
+      { label: '수정 전·후 비교', status: '진행 중', active: true },
+    ]
+  }
   if (phase === 'recheck-extract') {
     return [
       { label: '오늘 뗀 등기부', status: '진행 중', active: true },
@@ -78,14 +99,20 @@ export function ProgressScreen({
 
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000))
   const steps = stepsFor(phase, hasContract, source)
-  const reading = phase === 'extract' || phase === 'recheck-extract'
+  const reading = phase === 'extract' || phase === 'recheck-extract' || phase === 'compare-extract'
   const note =
     seconds >= SLOW_AFTER_S
       ? '조금 더 걸리고 있어요. 90초가 지나면 다시 시도할 수 있어요.'
       : reading
         ? '보통 1분 안에 끝나요.'
         : null
-  const title = reading ? '서류 읽는 중' : phase === 'recheck' ? '재확인 중' : '위험 신호 확인 중'
+  const title = reading
+    ? '서류 읽는 중'
+    : phase === 'recheck'
+      ? '재확인 중'
+      : phase === 'compare'
+        ? '비교 중'
+        : '위험 신호 확인 중'
 
   return (
     <>

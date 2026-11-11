@@ -8,7 +8,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Level = Literal["red", "yellow", "green", "unknown"]
 OverallLevel = Literal["red", "yellow", "green"]
@@ -284,6 +284,78 @@ class RecheckReport(Model):
     changes: list[RecheckChange] = Field(default_factory=list)
     term_checks: list[TermCheck] = Field(default_factory=list)
     actions: list[str] = Field(default_factory=list)
+    disclaimer: str
+
+
+# ---------------------------------------------------------------------------
+# 계약서 변경 추적: 수정 전·후 비교
+# ---------------------------------------------------------------------------
+
+
+class CompareRequest(Model):
+    """같은 등기부로, 수정 전 계약서와 수정 후 계약서의 검사 입력을 비교한다. 저장하지 않는다."""
+
+    before: CheckRequest  # 수정 전 (방금 검사한 입력)
+    after: CheckRequest  # 수정 후 (계약서만 바꾼 입력)
+    today: Optional[dt.date] = None  # 없으면 before.today, 그것도 없으면 현재 한국 날짜
+    mode: Mode = "live"
+
+    @model_validator(mode="after")
+    def _needs_contracts(self) -> "CompareRequest":
+        # 계약서 없이 검사한 결과는 비교할 수 없다 ("— → 값"뿐인 비교서를 막는다)
+        if self.before.contract is None or self.after.contract is None:
+            raise ValueError("수정 전·후 모두 계약서가 있어야 비교할 수 있어요.")
+        return self
+
+
+class RequestFulfillment(Model):
+    """수정 전 요청서 항목 하나의 반영 여부."""
+
+    kind: Literal["fix", "term", "document"]  # 고칠 곳 · 특약 · 받을 서류
+    item: str  # 화면용 (고칠 곳은 항목 이름, 특약·서류는 문안)
+    label: str = ""  # 짧은 이름 (특약: "담보 설정 금지" · "반환보증 불가 시 무효" · "납세증명서·확정일자 제시" · "신탁회사 동의서" · "근저당 말소")
+    status: Literal["반영", "미반영", "직접 확인"]
+    note: str = ""
+
+
+class RuleDelta(Model):
+    """규칙 하나의 수정 전·후 등급."""
+
+    id: str
+    name: str
+    before: Level
+    after: Level
+    change: Literal["개선", "악화", "그대로"]
+    after_title: str = ""  # 수정 후에도 🔴·🟡이면 그 상황 한 줄
+
+
+class ContractChange(Model):
+    """바뀐 계약 내용 한 줄."""
+
+    field: str  # "임대인" · "소재지" · "동·호" · "보증금" · "월세" · "계약일" · "잔금일" · "특약 추가" · "특약 삭제"
+    before: Optional[str] = None
+    after: Optional[str] = None
+
+
+class FulfillmentRate(Model):
+    done: int
+    total: int  # 고칠 곳 + 특약 (받을 서류는 넣지 않는다)
+
+
+class CompareReport(Model):
+    mode: Mode
+    generated_at: dt.datetime
+    today: dt.date
+    address: Optional[str] = None
+    before_overall: Overall
+    after_overall: Overall
+    before_counts: Counts
+    after_counts: Counts
+    rate: FulfillmentRate
+    headline: str  # 예: "위험 3건 → 2건, 요청 5건 중 5건 반영"
+    fulfillment: list[RequestFulfillment] = Field(default_factory=list)
+    rule_deltas: list[RuleDelta] = Field(default_factory=list)  # 13개, 바뀐 것 먼저
+    contract_changes: list[ContractChange] = Field(default_factory=list)
     disclaimer: str
 
 

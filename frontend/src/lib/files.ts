@@ -86,3 +86,37 @@ export async function resizeContractPhoto(file: File): Promise<File> {
     image.release()
   }
 }
+
+const TOO_BIG = '10MB 이하 파일만 올릴 수 있어요.'
+
+/** 등기부 PDF 확인 (S2·S6). 문제가 있으면 화면에 보여줄 문장, 없으면 null */
+export async function checkRegistryFile(file: File): Promise<string | null> {
+  if (!isPdfFile(file)) return '등기부는 PDF 파일만 올릴 수 있어요.'
+  if (file.size > MAX_FILE_BYTES) {
+    return `${TOO_BIG} 인터넷등기소에서 '현재 유효사항'으로 다시 열람해 보세요.`
+  }
+  if (!(await hasPdfHeader(file))) {
+    return 'PDF 파일이 아닌 것 같아요. 인터넷등기소에서 저장한 PDF를 올려주세요.'
+  }
+  return null
+}
+
+/**
+ * 계약서 파일 준비 (S2·S6). PDF는 그대로 보내고(크기·머리글만 확인),
+ * 사진은 먼저 줄여서 다시 저장한 뒤 줄인 파일로 10MB를 확인한다.
+ */
+export async function prepareContractFile(file: File): Promise<{ file: File } | { error: string }> {
+  if (isPdfFile(file)) {
+    if (file.size > MAX_FILE_BYTES) return { error: TOO_BIG }
+    if (!(await hasPdfHeader(file))) return { error: 'PDF 파일이 아닌 것 같아요. 다른 파일을 골라 주세요.' }
+    return { file }
+  }
+  if (!isImageFile(file)) return { error: '계약서는 사진(JPG·PNG·WEBP)이나 PDF만 올릴 수 있어요.' }
+  try {
+    const resized = await resizeContractPhoto(file)
+    if (resized.size > MAX_FILE_BYTES) return { error: TOO_BIG }
+    return { file: resized }
+  } catch {
+    return { error: '사진을 열지 못했어요. 다른 사진을 골라 주세요.' }
+  }
+}

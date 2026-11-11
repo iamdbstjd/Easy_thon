@@ -230,6 +230,64 @@ class Report(Model):
 
 
 # ---------------------------------------------------------------------------
+# 계약 후 재확인: 잔금 전·입주 후
+# ---------------------------------------------------------------------------
+
+RecheckPhase = Literal["before_balance", "balance_day", "after_move_in"]
+
+
+class RecheckRequest(Model):
+    """오늘 뗀 등기부를 계약서와 맞춰 본다. 계약 당시 등기부는 저장하지 않는다."""
+
+    registry: RegistryExtract  # 오늘 뗀 등기부
+    contract: ContractExtract  # 계약서 (다시 올린 것)
+    baseline_viewed_at: Optional[dt.datetime] = None  # 계약 때 본 등기부 열람 일시 (같은 화면에서 이어 올 때만)
+    today: Optional[dt.date] = None  # 없으면 서버가 현재 한국 날짜로 채운다
+    mode: Mode = "live"
+
+
+class RecheckChange(Model):
+    """계약 후(비교 기준일 이후) 새로 생긴 등기 한 줄."""
+
+    section: Literal["gapgu", "eulgu"]
+    rank: str
+    purpose: str
+    received_at: Optional[dt.date] = None
+    holders: list[str] = Field(default_factory=list)  # 화면용 (주민등록번호 가림)
+    amount: Optional[int] = None
+    level: Level
+    note: str  # "계약 후 새로 생긴 근저당권설정", "계약 당일 접수: …" …
+    page: Optional[int] = None
+    source_text: str = ""  # 원문 (주민등록번호 가림)
+
+
+class TermCheck(Model):
+    """계약서 특약 한 개의 이행 여부."""
+
+    term: str  # 특약 원문 (주민등록번호 가림)
+    status: Literal["위반", "미이행", "이행", "확인 필요"]
+    level: Level
+    note: str
+
+
+class RecheckReport(Model):
+    mode: Mode
+    generated_at: dt.datetime
+    today: dt.date
+    phase: RecheckPhase
+    baseline_date: Optional[dt.date] = None  # 이 날짜 이후 접수된 권리를 새것으로 본다
+    contract_date: Optional[dt.date] = None
+    balance_date: Optional[dt.date] = None
+    move_in_date: Optional[dt.date] = None
+    address: Optional[str] = None
+    overall: Overall
+    changes: list[RecheckChange] = Field(default_factory=list)
+    term_checks: list[TermCheck] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list)
+    disclaimer: str
+
+
+# ---------------------------------------------------------------------------
 # 9장 기타 응답과 오류
 # ---------------------------------------------------------------------------
 

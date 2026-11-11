@@ -602,7 +602,7 @@ class TestR5:
         assert any(e.doc == "manual" for e in r.evidence), r.evidence
 
     def test_same_dong_marked_estimate(self):
-        """F8: same_dong는 화면에 "추정" 표시."""
+        """same_dong는 화면에 "추정" 표시."""
         r = res(run(r5_req(80_000_000, method="same_dong")), "R5")
         assert "추정" in r.summary, r.summary
 

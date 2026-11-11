@@ -17,6 +17,7 @@ import { CopyButton } from '../components/CopyButton'
 import { Fold, Reveal } from '../components/Disclosure'
 import { Excerpt } from '../components/Excerpt'
 import { Grade } from '../components/Grade'
+import { ResultText } from '../components/ResultText'
 import { CHECKLIST_WHEN_ORDER, COUNT_LABEL, DOC_LABEL, LEVEL_LABEL, ruleNumber } from '../content/labels'
 import { HELP_LINKS, OFF_REGISTRY_ROWS, SPECIAL_TERMS_NOTE } from '../content/static'
 import { formatDate, isoToLocalInput } from '../lib/format'
@@ -30,11 +31,14 @@ export function ReportScreen({
   request,
   onEdit,
   onFillMissing,
+  onRecheck,
   onHome,
 }: {
   report: Report
   request: CheckRequest | null
   onEdit: () => void
+  /** 4절 아래 "잔금 전 재확인" → S6 (지금 계약서를 이어 쓴다) */
+  onRecheck: () => void
   /** [빠진 내용 채우기]: 확인하지 못한 규칙 ID를 넘겨 S4에서 관련 칸으로 바로 이동한다 */
   onFillMissing: (unknownRuleIds: string[]) => void
   onHome: () => void
@@ -166,7 +170,9 @@ export function ReportScreen({
   if (report.checklist.length > 0) {
     sections.push({
       key: 'schedule',
-      render: (n) => <Schedule number={n} items={report.checklist} address={icsAddress} />,
+      render: (n) => (
+        <Schedule number={n} items={report.checklist} address={icsAddress} onRecheck={onRecheck} />
+      ),
     })
   }
   sections.push({
@@ -287,7 +293,7 @@ function cellValue(value: string | null): ReactNode {
   return value ? keepTogether(maskIds(value)) : '—'
 }
 
-/** 1절: 계약서·등기부 대조표 (F14). 항목 | 계약서 | 등기부·시세 | 결과 */
+/** 1절: 계약서·등기부 대조표. 항목 | 계약서 | 등기부·시세 | 결과 */
 function Comparison({
   number,
   rows,
@@ -312,10 +318,6 @@ function Comparison({
         </thead>
         <tbody>
           {rows.map((row) => {
-            const word = COUNT_LABEL[row.level]
-            const note = maskIds(row.note.trim())
-            // 🔴·🟡: 등급 단어 + 결과 ("위험 불일치"). 🟢·⚪: 결과만 등급 색으로 ("일치", "확인 못 함")
-            const flaggedRow = row.level === 'red' || row.level === 'yellow'
             return (
               <tr key={`${row.rule_id}-${row.item}`} className={`cmp-row cmp-${row.level}`}>
                 <th scope="row" className="c-item">
@@ -328,14 +330,7 @@ function Comparison({
                   <span className="c-text">{cellValue(row.registry)}</span>
                 </td>
                 <td className="c-result">
-                  {flaggedRow ? (
-                    <>
-                      <span className={`grade grade-${row.level}`}>{word}</span>
-                      {note && note !== word && ` ${note}`}
-                    </>
-                  ) : (
-                    <span className={`grade-${row.level}`}>{note || word}</span>
-                  )}
+                  <ResultText level={row.level} note={row.note} />
                 </td>
               </tr>
             )
@@ -350,7 +345,7 @@ function Comparison({
 const PART_MARKS = ['가', '나', '다']
 
 /**
- * 3절: 계약서 수정 요청서 (F15). 계약서가 없으면 서버가 제목을 "계약 전 요청서"로 보낸다.
+ * 3절: 계약서 수정 요청서. 계약서가 없으면 서버가 제목을 "계약 전 요청서"로 보낸다.
  * [복사]는 amendment.text 전체, [인쇄]는 이 절만 A4로 인쇄한다 (styles.css의 @media print).
  */
 function AmendmentSection({
@@ -609,10 +604,12 @@ function Schedule({
   number,
   items,
   address,
+  onRecheck,
 }: {
   number: number
   items: ChecklistItem[]
   address: string | null
+  onRecheck: () => void
 }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -641,6 +638,15 @@ function Schedule({
       setSaving(false)
     }
   }
+
+  const hasBalanceRow = groups.some((g) => g.when === '잔금일')
+  const recheckLink = (
+    <p>
+      <button type="button" className="link" onClick={onRecheck}>
+        잔금 전 재확인
+      </button>
+    </p>
+  )
 
   return (
     <section className="doc-section" aria-labelledby="sec-schedule">
@@ -676,11 +682,14 @@ function Schedule({
                     </li>
                   ))}
                 </ul>
+                {/* "잔금 보내기 전 등기부 다시 떼기" 바로 옆: 오늘 뗀 등기부로 계약 후 재확인 */}
+                {group.when === '잔금일' && recheckLink}
               </dd>
             </div>
           )
         })}
       </dl>
+      {!hasBalanceRow && recheckLink}
     </section>
   )
 }

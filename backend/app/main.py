@@ -23,7 +23,7 @@ from fastapi.exception_handlers import request_validation_exception_handler  # n
 from fastapi.exceptions import RequestValidationError  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import Response  # noqa: E402
-from pydantic import ValidationError  # noqa: E402
+from pydantic import BaseModel, ValidationError  # noqa: E402
 from starlette.concurrency import run_in_threadpool  # noqa: E402
 from starlette.datastructures import MutableHeaders  # noqa: E402
 from starlette.formparsers import MultiPartParser  # noqa: E402
@@ -37,6 +37,8 @@ from app.schemas import (  # noqa: E402
     ExtractResponse,
     HealthResponse,
     IcsRequest,
+    RecheckReport,
+    RecheckRequest,
     Report,
 )
 
@@ -45,6 +47,7 @@ logger = config.setup_logging()
 KST = dt.timezone(dt.timedelta(hours=9))
 DEMO_DIR: Path = config.BACKEND_DIR / "demo"  # 테스트에서 바꿔 끼울 수 있다
 DEMO_SCENARIOS = ("A", "B", "C")
+RECHECK_DEMO = "recheck-A"  # 계약 후 재확인 예시
 CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]  # 개발용 (Vite)
 EXTRACT_PATH = "/api/extract"
 DISCONNECT_POLL_SECONDS = 0.5  # 추출 중 클라이언트 연결 끊김을 확인하는 간격
@@ -55,6 +58,7 @@ DISCONNECT_POLL_SECONDS = 0.5  # 추출 중 클라이언트 연결 끊김을 확
 MultiPartParser.spool_max_size = uploads.MAX_REQUEST_BYTES
 
 T = TypeVar("T")
+M = TypeVar("M", bound=BaseModel)
 
 
 def today_kst() -> dt.date:
@@ -302,22 +306,57 @@ def check_route(req: CheckRequest) -> Report:
     return build_report(req)
 
 
+def build_recheck(req: RecheckRequest) -> RecheckReport:
+    """규칙 엔진의 build_recheck를 부른다.
+
+    부를 때 가져온다: 규칙 엔진이 아직 내보내지 않아도 서버는 뜨고, 이 라우트만 500이 된다.
+    테스트에서는 이 함수를 바꿔 끼운다.
+    """
+    from app.rules import build_recheck as rules_build_recheck
+
+    return rules_build_recheck(req)
+
+
+@app.post("/api/recheck", response_model=RecheckReport)
+def recheck_route(req: RecheckRequest) -> RecheckReport:
+    """계약 후 재확인: 오늘 뗀 등기부를 계약서와 맞춰 본다. AI를 부르지 않는다.
+
+    today가 없으면 현재 한국 날짜를 쓰고, 응답의 주민등록번호 모양은 가린다.
+    """
+    if req.today is None:
+        req = req.model_copy(update={"today": today_kst()})
+    return privacy.mask_resident_ids(build_recheck(req))
+
+
+def _load_demo(name: str, model: type[M]) -> M:
+    """backend/demo/{name}.json을 읽어 검증한다. 없으면 NOT_FOUND, 형식이 틀리면 INTERNAL_ERROR."""
+    path = DEMO_DIR / f"{name}.json"
+    if not path.is_file():
+        raise ApiError("NOT_FOUND", reason=f"demo:{name}_missing")
+    try:
+        req = model.model_validate_json(path.read_bytes())
+    except ValidationError as e:
+        locs = [".".join(str(p) for p in err["loc"]) for err in e.errors()[:5]]
+        logger.error("demo file invalid scenario=%s errors=%d at=%s", name, e.error_count(), locs)
+        raise ApiError("INTERNAL_ERROR", reason=f"demo:{name}_invalid") from None
+    # 예시 데이터는 항상 데모 모드이고, 주민등록번호 모양은 가린다.
+    return privacy.mask_resident_ids(req.model_copy(update={"mode": "demo"}))
+
+
+# /api/demo/{scenario}보다 먼저 선언해야 "recheck-A"가 시나리오로 잡히지 않는다.
+@app.get(f"/api/demo/{RECHECK_DEMO}", response_model=RecheckRequest, responses={404: _ERROR_DOC})
+def recheck_demo_route() -> RecheckRequest:
+    """계약 후 재확인 예시의 /api/recheck 입력 전체."""
+    return _load_demo(RECHECK_DEMO, RecheckRequest)
+
+
 @app.get("/api/demo/{scenario}", response_model=CheckRequest, responses={404: _ERROR_DOC})
 def demo_route(scenario: str) -> CheckRequest:
     """데모 시나리오(A·B·C)의 /api/check 입력 전체. mode는 항상 "demo"이고, 주민등록번호 모양은 가린다."""
     name = scenario.upper()
     if name not in DEMO_SCENARIOS:
         raise ApiError("NOT_FOUND", reason="demo:unknown_scenario")
-    path = DEMO_DIR / f"{name}.json"
-    if not path.is_file():
-        raise ApiError("NOT_FOUND", reason=f"demo:{name}_missing")
-    try:
-        req = CheckRequest.model_validate_json(path.read_bytes())
-    except ValidationError as e:
-        locs = [".".join(str(p) for p in err["loc"]) for err in e.errors()[:5]]
-        logger.error("demo file invalid scenario=%s errors=%d at=%s", name, e.error_count(), locs)
-        raise ApiError("INTERNAL_ERROR", reason=f"demo:{name}_invalid") from None
-    return privacy.mask_resident_ids(req.model_copy(update={"mode": "demo"}))
+    return _load_demo(name, CheckRequest)
 
 
 @app.get("/api/health", response_model=HealthResponse)

@@ -125,7 +125,7 @@ def is_removal_record(e: Entry) -> bool:
     return bool(segs) and all(_is_removal(s) for s in segs)
 
 
-def _has_word(e: Entry, words: tuple[str, ...]) -> bool:
+def has_word(e: Entry, words: tuple[str, ...]) -> bool:
     return any(w in s for s in active_segments(e) for w in words)
 
 
@@ -138,7 +138,7 @@ def _entry_text(e: Entry) -> str:
         e.purpose,
         fmt_date(e.received_at) if e.received_at else "",
         e.cause or "",
-        ", ".join(_names(e.holders)),
+        ", ".join(holder_names(e.holders)),
         fmt_money(e.amount) if e.amount is not None else "",
     ]
     return " ".join(p.strip() for p in parts if p and p.strip())
@@ -148,7 +148,7 @@ def entry_evidence(e: Entry) -> Evidence:
     return Evidence(doc="registry", page=e.page, text=_entry_text(e))
 
 
-def _names(holders: list[str]) -> list[str]:
+def holder_names(holders: list[str]) -> list[str]:
     return [display_name(h) for h in holders if normalize_name(h)]
 
 
@@ -208,10 +208,10 @@ def current_ownership(gapgu: list[Entry]) -> Optional[Ownership]:
         segs = [s for s in active_segments(e) if _is_ownership_segment(s)]
         if not segs:
             continue
-        names = _names(e.holders)
+        names = holder_names(e.holders)
         if not names:
-            rank = _base_rank(e.rank)
-            same_rank = last is not None and rank is not None and rank == _base_rank(last.rank)
+            rank = base_rank(e.rank)
+            same_rank = last is not None and rank is not None and rank == base_rank(last.rank)
             if all(s == "신탁" for s in segs) or same_rank:
                 continue
             owners, entries, last, known = [], [e], e, False
@@ -245,7 +245,7 @@ class Claims:
     entries: list[Entry]
 
 
-def _base_rank(rank: str) -> Optional[str]:
+def base_rank(rank: str) -> Optional[str]:
     m = re.match(r"\s*(\d+)", rank or "")
     return m.group(1) if m else None
 
@@ -258,13 +258,13 @@ def prior_claims(eulgu: list[Entry], words: tuple[str, ...]) -> Claims:
     """
     groups: dict[str, list[Entry]] = {}
     for i, e in enumerate(eulgu):
-        if is_removal_record(e) or not _has_word(e, words):
+        if is_removal_record(e) or not has_word(e, words):
             continue
-        groups.setdefault(_base_rank(e.rank) or f"#{i}", []).append(e)
+        groups.setdefault(base_rank(e.rank) or f"#{i}", []).append(e)
     total, missing, entries = 0, False, []
     for members in groups.values():
         entries.extend(members)
-        amounts = [m.amount for m in members if m.amount is not None and not _has_word(m, ("질권",))]
+        amounts = [m.amount for m in members if m.amount is not None and not has_word(m, ("질권",))]
         if amounts:
             total += amounts[-1]
         else:
@@ -436,7 +436,7 @@ def has_trust(e: Entry) -> bool:
     """등기목적이나 등기원인에 "신탁"이 있는 항목. 신탁이 끝난 기록(신탁재산의귀속 등)은 뺀다."""
     if is_removal_record(e):
         return False
-    if _has_word(e, ("신탁",)):
+    if has_word(e, ("신탁",)):
         return True
     cause = compact(e.cause)
     return "신탁" in cause and not any(w in cause for w in _TRUST_ENDED)
@@ -449,7 +449,7 @@ def rule_r2(ctx: Ctx) -> RuleResult:
     hits = [e for e in ctx.gapgu if has_trust(e)]
     if not hits:
         return _green("R2")
-    trustees = next((names for e in reversed(hits) if (names := _names(e.holders))), [])
+    trustees = next((names for e in reversed(hits) if (names := holder_names(e.holders))), [])
     trustee = ", ".join(trustees) or "신탁회사"
     return _result(
         "R2",
@@ -468,7 +468,7 @@ def rule_r3(ctx: Ctx) -> RuleResult:
     """압류·경매 등 제한."""
     if not ctx.gapgu:
         return _unknown("R3", NO_GAPGU)
-    hits = [e for e in ctx.gapgu if not is_removal_record(e) and _has_word(e, _RESTRICTION_WORDS)]
+    hits = [e for e in ctx.gapgu if not is_removal_record(e) and has_word(e, _RESTRICTION_WORDS)]
     if not hits:
         return _green("R3")
     if len(hits) == 1 and hits[0].received_at:  # 7.2 문구: "{접수일}에 {등기목적} 기록이 있어요."
@@ -491,7 +491,7 @@ def rule_r3(ctx: Ctx) -> RuleResult:
 def rule_r4(ctx: Ctx) -> RuleResult:
     """임차권등기."""
     live = [e for e in ctx.eulgu if not is_removal_record(e)]
-    orders = [e for e in live if _has_word(e, ("주택임차권",)) or "임차권등기명령" in compact(e.cause)]
+    orders = [e for e in live if has_word(e, ("주택임차권",)) or "임차권등기명령" in compact(e.cause)]
     if orders:
         return _result(
             "R4",
@@ -501,12 +501,12 @@ def rule_r4(ctx: Ctx) -> RuleResult:
             "집주인이 보증금을 돌려줄 능력이 있는지 의심해야 해요. 계약을 미루는 걸 권해요.",
             [entry_evidence(e) for e in orders],
         )
-    leases = [e for e in live if _has_word(e, ("임차권",))]
+    leases = [e for e in live if has_word(e, ("임차권",))]
     if not leases:
         return _green("R4")
     parts = []
     for e in leases:
-        who = ", ".join(_names(e.holders)) or "다른 임차인"
+        who = ", ".join(holder_names(e.holders)) or "다른 임차인"
         amount = f"({fmt_money(e.amount)})" if e.amount is not None else ""
         parts.append(f"{who}의 임차권{amount}")
     return _result(

@@ -8,10 +8,18 @@ export function StartScreen({
   onUpload,
   onDemo,
   demoLoading,
+  onRecheck,
+  onRecheckDemo,
+  recheckDemoLoading,
 }: {
   onUpload: () => void
   onDemo: (scenario: DemoScenario) => void
   demoLoading: DemoScenario | null
+  /** 계약 후 재확인 (S6) */
+  onRecheck: () => void
+  /** 계약 후 재확인 예시 (S7) */
+  onRecheckDemo: () => void
+  recheckDemoLoading: boolean
 }) {
   const titleRef = useScreenFocus<HTMLHeadingElement>()
 
@@ -45,11 +53,22 @@ export function StartScreen({
         <button type="button" className="btn-primary" onClick={onUpload}>
           서류 올리기
         </button>
+        <button type="button" className="link" onClick={onRecheck}>
+          이미 계약했다면: 계약 후 재확인
+        </button>
       </div>
 
       <section className="doc-section" aria-labelledby="example-title">
         <h2 id="example-title">예시 결과 보기</h2>
-        <ExampleLinks loading={demoLoading} onSelect={onDemo} />
+        <ExampleLinks
+          loading={demoLoading}
+          onSelect={onDemo}
+          extra={{
+            label: 'A 집, 잔금 이틀 전 근저당이 생긴 경우',
+            loading: recheckDemoLoading,
+            onSelect: onRecheckDemo,
+          }}
+        />
       </section>
 
       <p className="footnote">{START_NOTICE}</p>

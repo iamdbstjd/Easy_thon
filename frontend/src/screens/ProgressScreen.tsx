@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Mode } from '../api/types'
 import { useScreenFocus } from '../lib/useScreenFocus'
 
-export type ProgressPhase = 'extract' | 'check'
+export type ProgressPhase = 'extract' | 'check' | 'recheck-extract' | 'recheck'
 
 /** 이 시간이 지나면 "보통 1분 안에 끝나요" 대신 솔직한 안내를 보여준다 */
 const SLOW_AFTER_S = 60
@@ -19,6 +19,24 @@ interface Step {
  * - check: /api/check 동안. 앞의 두 단계는 이미 끝났거나(실제 서류) 데모 값을 쓴다.
  */
 function stepsFor(phase: ProgressPhase, hasContract: boolean, source: Mode): Step[] {
+  // 계약 후 재확인: 계약서는 새로 읽거나(hasContract) 앞 화면에서 이어 받는다
+  if (phase === 'recheck-extract') {
+    return [
+      { label: '오늘 뗀 등기부', status: '진행 중', active: true },
+      hasContract
+        ? { label: '계약서', status: '진행 중', active: true }
+        : { label: '계약서', status: '이어 받음', active: false },
+      { label: '새로 생긴 권리 확인', status: '대기', active: false },
+    ]
+  }
+  if (phase === 'recheck') {
+    const done = source === 'demo' ? '예시 값' : '완료'
+    return [
+      { label: '오늘 뗀 등기부', status: done, active: false },
+      { label: '계약서', status: done, active: false },
+      { label: '새로 생긴 권리 확인', status: '진행 중', active: true },
+    ]
+  }
   if (phase === 'extract') {
     return [
       { label: '등기부', status: '진행 중', active: true },
@@ -60,18 +78,20 @@ export function ProgressScreen({
 
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000))
   const steps = stepsFor(phase, hasContract, source)
+  const reading = phase === 'extract' || phase === 'recheck-extract'
   const note =
     seconds >= SLOW_AFTER_S
       ? '조금 더 걸리고 있어요. 90초가 지나면 다시 시도할 수 있어요.'
-      : phase === 'extract'
+      : reading
         ? '보통 1분 안에 끝나요.'
         : null
+  const title = reading ? '서류 읽는 중' : phase === 'recheck' ? '재확인 중' : '위험 신호 확인 중'
 
   return (
     <>
       <div className="doc-head">
         <h1 ref={titleRef} tabIndex={-1}>
-          {phase === 'extract' ? '서류 읽는 중' : '위험 신호 확인 중'} · {seconds}초
+          {title} · {seconds}초
         </h1>
         {note && <p className="muted">{note}</p>}
       </div>

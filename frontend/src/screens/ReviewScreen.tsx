@@ -10,7 +10,8 @@ import {
   TextField,
 } from '../components/fields'
 import { MARKET_METHOD_LABEL } from '../content/labels'
-import { formatArea, formatDateShort, formatPeriod, formatWon, groupNumber } from '../lib/format'
+import { formatArea, formatDate, formatPeriod, formatWon, groupNumber } from '../lib/format'
+import { holderList } from '../lib/holders'
 import { maskIds } from '../lib/mask'
 import { useScreenFocus } from '../lib/useScreenFocus'
 import { formFromRequest, missingField, requestFromForm } from '../state/review'
@@ -274,9 +275,9 @@ function EntryTable({ entries, caption }: { entries: Entry[]; caption: string })
                   )}
                 </td>
                 <td className="c-nowrap" data-label="접수일">
-                  {formatDateShort(entry.received_at)}
+                  {formatDate(entry.received_at)}
                 </td>
-                <td data-label="권리자">{entry.holders.map(maskIds).join(', ')}</td>
+                <td data-label="권리자">{holderList(entry.holders)}</td>
                 <td className="c-nowrap" data-label="금액">
                   {entry.amount !== null ? formatWon(entry.amount) : ''}
                 </td>

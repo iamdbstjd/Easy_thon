@@ -651,6 +651,9 @@ details:not([open]) > summary .when-open {
   padding-bottom: 0;
   padding-right: 0;
   text-align: right;
+  /* 칸이 좁아져도 "원문" 링크가 두 줄로 갈라지지 않게 (누르는 영역 44×44 유지) */
+  white-space: nowrap;
+  width: 1%;
 }
 .entry-table .entry-source-row > td {
   padding-top: 0;
@@ -848,7 +851,7 @@ details:not([open]) > summary .when-open {
 }
 
 /* ---------------------------------------------------------------------------
-   S5 1절: 계약서·등기부 대조표 (F14). 선으로 짠 표, 상자 없음
+   S5 1절: 계약서·등기부 대조표. 선으로 짠 표, 상자 없음
    --------------------------------------------------------------------------- */
 
 .cmp-table {
@@ -934,7 +937,7 @@ details:not([open]) > summary .when-open {
 }
 
 /* ---------------------------------------------------------------------------
-   S5 3절: 계약서 수정 요청서 (F15)
+   S5 3절: 계약서 수정 요청서
    --------------------------------------------------------------------------- */
 
 .head-links {
@@ -1062,4 +1065,23 @@ details:not([open]) > summary .when-open {
     margin-top: 8mm;
     font-size: 9pt;
   }
+}
+
+/* 표 칸: overflow-wrap:anywhere는 칸의 최소 폭을 글자 하나로 만들어 낱말 중간에서 줄이 바뀐다.
+   표 안에서는 break-word로 두어 낱말 단위로 칸 폭을 잡고, 넘치는 긴 토큰만 자른다 */
+.entry-table td,
+.entry-table th,
+.cmp-table td,
+.cmp-table th {
+  overflow-wrap: break-word;
+}
+
+/* S7 특약 점검: 상태 줄 다음에 특약 원문 인용 상자 */
+.term-checks .term-status {
+  margin-bottom: 6px;
+}
+
+/* S1 계약 후 재확인 예시: 검토서 예시 목록 아래 한 줄 (앞말 + 글자 링크) */
+.example-extra {
+  margin-top: 8px;
 }

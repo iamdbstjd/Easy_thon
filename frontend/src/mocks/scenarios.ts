@@ -1,10 +1,18 @@
 // 개발용 가짜 데이터. 주소에 ?mock=1이 있을 때만 쓴다 (src/api/client.ts).
 // 예시 A·B·C와 규칙 문구를 따른다. 실제 예시 데이터는 백엔드 demo/*.json이 기준이다.
 
-import type { Amendment, AmendmentFix, CheckRequest, ComparisonRow, Report, RuleResult } from '../api/types'
+import type {
+  Amendment,
+  AmendmentFix,
+  CheckRequest,
+  ComparisonRow,
+  RecheckRequest,
+  Report,
+  RuleResult,
+} from '../api/types'
 import { RULE_NAMES } from '../api/types'
 
-const DISCLAIMER =
+export const DISCLAIMER =
   '이 결과는 올려주신 서류와 공개 데이터를 정해진 기준으로 확인한 참고 정보예요. 법률 자문이 아니며 보증금의 안전을 보장하지 않아요. 중요한 결정 전에는 대한법률구조공단(국번 없이 132) 등 전문가와 상의하세요.'
 
 const GENERATED_AT = '2026-11-14T19:02:00+09:00'
@@ -713,4 +721,33 @@ export const REPORT_A_INCOMPLETE: Report = {
     (r): RuleResult =>
       r.id === 'R1' ? { ...r, level: 'unknown', unknown_reason: '임대인 이름을 확인하지 못했어요.' } : r,
   ),
+}
+
+// ---------------------------------------------------------------------------
+// 계약 후 재확인 예시: A 집, 잔금 이틀 전(오늘 2026-11-29) 뗀 등기부에 을구 근저당이 새로 생긴 경우
+// ---------------------------------------------------------------------------
+
+export const REQUEST_RECHECK_A: RecheckRequest = {
+  registry: {
+    ...REQUEST_A.registry,
+    viewed_at: '2026-11-29T09:05:00+09:00',
+    eulgu: [
+      {
+        rank: '1',
+        purpose: '근저당권설정',
+        received_at: '2026-11-27',
+        cause: '설정계약',
+        holders: ['주식회사○○은행'],
+        amount: 120000000,
+        is_cancelled: false,
+        page: 3,
+        source_text:
+          '1 근저당권설정 2026년11월27일 제112233호 2026년11월27일 설정계약 채권최고액 금120,000,000원 채무자 김○○ 근저당권자 주식회사○○은행 110111-******* 서울특별시 중구 ○○로 ○○',
+      },
+    ],
+  },
+  contract: REQUEST_A.contract!,
+  baseline_viewed_at: null,
+  today: '2026-11-29',
+  mode: 'demo',
 }

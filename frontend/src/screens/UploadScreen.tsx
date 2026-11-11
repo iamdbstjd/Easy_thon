@@ -6,20 +6,12 @@ import { ToggleGroup } from '../components/Disclosure'
 import { FilePicker } from '../components/FilePicker'
 import { DateField, MoneyField, TextField } from '../components/fields'
 import { IROS_URL } from '../content/static'
-import {
-  hasPdfHeader,
-  isImageFile,
-  isPdfFile,
-  MAX_FILE_BYTES,
-  resizeContractPhoto,
-} from '../lib/files'
+import { checkRegistryFile, prepareContractFile } from '../lib/files'
 import { useScreenFocus } from '../lib/useScreenFocus'
 import { hasManualValues } from '../state/upload'
 import type { ManualDraft, UploadDraft } from '../state/upload'
 
 type ServerState = HealthResponse | 'offline' | null
-
-const TOO_BIG = '10MB 이하 파일만 올릴 수 있어요.'
 
 /** S2 업로드 */
 export function UploadScreen({
@@ -51,59 +43,21 @@ export function UploadScreen({
 
   async function pickRegistry(file: File) {
     setRegistryError(null)
-    if (!isPdfFile(file)) {
-      setRegistryError('등기부는 PDF 파일만 올릴 수 있어요.')
-      return
-    }
-    if (file.size > MAX_FILE_BYTES) {
-      setRegistryError(`${TOO_BIG} 인터넷등기소에서 '현재 유효사항'으로 다시 열람해 보세요.`)
-      return
-    }
-    if (!(await hasPdfHeader(file))) {
-      setRegistryError('PDF 파일이 아닌 것 같아요. 인터넷등기소에서 저장한 PDF를 올려주세요.')
-      return
-    }
-    setDraft((d) => ({ ...d, registry: file }))
+    const error = await checkRegistryFile(file)
+    if (error) setRegistryError(error)
+    else setDraft((d) => ({ ...d, registry: file }))
   }
 
   async function pickContract(file: File) {
     const pick = ++contractPick.current
     const isCurrent = () => pick === contractPick.current
     setContractError(null)
-
-    // PDF는 그대로 보낸다: 크기와 PDF 머리글만 확인한다.
-    if (isPdfFile(file)) {
-      if (file.size > MAX_FILE_BYTES) {
-        setContractError(TOO_BIG)
-        return
-      }
-      if (!(await hasPdfHeader(file))) {
-        if (isCurrent()) setContractError('PDF 파일이 아닌 것 같아요. 다른 파일을 골라 주세요.')
-        return
-      }
-      if (isCurrent()) setDraft((d) => ({ ...d, contract: file }))
-      return
-    }
-    if (!isImageFile(file)) {
-      setContractError('계약서는 사진(JPG·PNG·WEBP)이나 PDF만 올릴 수 있어요.')
-      return
-    }
-
-    // 사진은 먼저 줄여서 다시 저장하고, 줄인 파일로 10MB를 확인한다.
     setContractBusy(true)
-    try {
-      const resized = await resizeContractPhoto(file)
-      if (!isCurrent()) return
-      if (resized.size > MAX_FILE_BYTES) {
-        setContractError(TOO_BIG)
-        return
-      }
-      setDraft((d) => ({ ...d, contract: resized }))
-    } catch {
-      if (isCurrent()) setContractError('사진을 열지 못했어요. 다른 사진을 골라 주세요.')
-    } finally {
-      if (isCurrent()) setContractBusy(false)
-    }
+    const result = await prepareContractFile(file)
+    if (!isCurrent()) return
+    setContractBusy(false)
+    if ('error' in result) setContractError(result.error)
+    else setDraft((d) => ({ ...d, contract: result.file }))
   }
 
   function setManual(key: keyof ManualDraft) {

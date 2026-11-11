@@ -3,7 +3,13 @@
 // 주소에 ?mock=1이 있을 때만 src/mocks의 가짜 데이터를 쓴다. 기본값은 항상 실제 백엔드다.
 
 import { ApiError, ERROR_MESSAGES } from './errors'
-import { normCheckRequest, normExtractResponse, normReport } from './normalize'
+import {
+  normCheckRequest,
+  normExtractResponse,
+  normRecheckReport,
+  normRecheckRequest,
+  normReport,
+} from './normalize'
 import type {
   ChecklistItem,
   CheckRequest,
@@ -11,6 +17,8 @@ import type {
   ExtractResponse,
   HealthResponse,
   IcsRequest,
+  RecheckReport,
+  RecheckRequest,
   Report,
 } from './types'
 
@@ -108,6 +116,29 @@ export async function demo(scenario: DemoScenario, signal?: AbortSignal): Promis
     ? await (await loadMocks()).demo(scenario, signal)
     : await sendJson(`/api/demo/${scenario}`, { signal })
   return { ...normCheckRequest(data), mode: 'demo' }
+}
+
+/** POST /api/recheck: 오늘 뗀 등기부를 계약서와 맞춰 본다 */
+export async function recheck(req: RecheckRequest, signal?: AbortSignal): Promise<RecheckReport> {
+  const data = IS_MOCK
+    ? await (await loadMocks()).recheck(req, signal)
+    : await sendJson('/api/recheck', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req),
+        signal,
+      })
+  return normRecheckReport(data)
+}
+
+/** GET /api/demo/recheck-A: 재확인 예시 (A 집, 잔금 이틀 전 근저당). 예시의 today·mode를 그대로 쓴다 */
+export async function demoRecheck(signal?: AbortSignal): Promise<RecheckRequest> {
+  const data = IS_MOCK
+    ? await (await loadMocks()).demoRecheck(signal)
+    : await sendJson('/api/demo/recheck-A', { signal })
+  const req = normRecheckRequest(data)
+  if (!req) throw new ApiError(ERROR_MESSAGES.generic, null)
+  return req
 }
 
 /** POST /api/checklist.ics → 받은 .ics 파일을 내려받게 한다. */

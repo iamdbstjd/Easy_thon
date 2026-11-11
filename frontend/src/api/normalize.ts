@@ -5,6 +5,10 @@
 
 import type {
   Amendment,
+  RecheckChange,
+  RecheckReport,
+  RecheckRequest,
+  TermCheck,
   BuildingRegister,
   ComparisonRow,
   ChecklistItem,
@@ -257,6 +261,76 @@ export function normReport(raw: unknown): Report {
     request_message: str(v.request_message),
     special_terms: strList(v.special_terms),
     checklist: list(v.checklist).map(normChecklistItem),
+    disclaimer: str(v.disclaimer) ?? '',
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 계약 후 재확인
+// ---------------------------------------------------------------------------
+
+/** 재확인 요청 (예시 데이터). 계약서가 없으면 재확인할 수 없으므로 null */
+export function normRecheckRequest(raw: unknown): RecheckRequest | null {
+  const v = obj(raw)
+  const contract = normContract(v.contract)
+  if (!contract) return null
+  return {
+    registry: normRegistry(v.registry),
+    contract,
+    baseline_viewed_at: str(v.baseline_viewed_at),
+    today: str(v.today),
+    mode: v.mode === 'demo' ? 'demo' : 'live',
+  }
+}
+
+function normRecheckChange(raw: unknown): RecheckChange {
+  const v = obj(raw)
+  return {
+    section: v.section === 'gapgu' ? 'gapgu' : 'eulgu',
+    rank: str(v.rank) ?? '',
+    purpose: str(v.purpose) ?? '',
+    received_at: str(v.received_at),
+    holders: strList(v.holders),
+    amount: num(v.amount),
+    level: oneOf<Level>(v.level, LEVELS) ?? 'unknown',
+    note: str(v.note) ?? '',
+    page: num(v.page),
+    source_text: str(v.source_text) ?? '',
+  }
+}
+
+function normTermCheck(raw: unknown): TermCheck {
+  const v = obj(raw)
+  return {
+    term: str(v.term) ?? '',
+    status: oneOf(v.status, ['위반', '미이행', '이행', '확인 필요'] as const) ?? '확인 필요',
+    level: oneOf<Level>(v.level, LEVELS) ?? 'unknown',
+    note: str(v.note) ?? '',
+  }
+}
+
+export function normRecheckReport(raw: unknown): RecheckReport {
+  const v = obj(raw)
+  const overall = obj(v.overall)
+  return {
+    mode: v.mode === 'demo' ? 'demo' : 'live',
+    generated_at: str(v.generated_at) ?? '',
+    today: str(v.today) ?? '',
+    phase: oneOf(v.phase, ['before_balance', 'balance_day', 'after_move_in'] as const) ?? 'before_balance',
+    baseline_date: str(v.baseline_date),
+    contract_date: str(v.contract_date),
+    balance_date: str(v.balance_date),
+    move_in_date: str(v.move_in_date),
+    address: str(v.address),
+    overall: {
+      level: oneOf(overall.level, ['red', 'yellow', 'green'] as const) ?? 'yellow',
+      title: str(overall.title) ?? '',
+      message: str(overall.message) ?? '',
+      unknown_note: str(overall.unknown_note),
+    },
+    changes: list(v.changes).map(normRecheckChange),
+    term_checks: list(v.term_checks).map(normTermCheck),
+    actions: strList(v.actions),
     disclaimer: str(v.disclaimer) ?? '',
   }
 }

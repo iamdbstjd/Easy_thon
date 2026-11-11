@@ -67,14 +67,6 @@ export function formatDate(iso: string | null | undefined, withWeekday = false):
   return `${text} (${WEEKDAYS[day]})`
 }
 
-/** 표 안의 짧은 날짜: "2026-08-26" → "2026. 8. 26." */
-export function formatDateShort(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const m = DATE_RE.exec(iso)
-  if (!m) return iso
-  return `${Number(m[1])}. ${Number(m[2])}. ${Number(m[3])}.`
-}
-
 const DATETIME_RE =
   /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000

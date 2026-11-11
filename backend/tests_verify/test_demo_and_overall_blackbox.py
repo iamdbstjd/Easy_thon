@@ -269,7 +269,7 @@ def test_8_6_invariants(name):
     # overall per 7.3
     lvl, title, msg, note = expected_overall(rep.results)
     assert (rep.overall.level, rep.overall.title, rep.overall.message, rep.overall.unknown_note) == (lvl, title, msg, note)
-    # red/yellow carry title + >=1 evidence (F6); unknown carries reason (F5)
+    # red/yellow carry title + >=1 evidence; unknown carries reason
     for r in rep.results:
         if r.level in ("red", "yellow"):
             assert r.title and r.summary and r.action, r.id

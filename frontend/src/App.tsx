@@ -1,21 +1,35 @@
 import { useRef, useState } from 'react'
-import { check, demo, extract } from './api/client'
+import { check, demo, demoRecheck, extract, recheck } from './api/client'
 import { ApiError, errorMessage, isFileError } from './api/errors'
-import type { CheckRequest, DemoScenario, Mode, Report } from './api/types'
+import type {
+  CheckRequest,
+  DemoScenario,
+  Mode,
+  RecheckReport,
+  RecheckRequest,
+  Report,
+} from './api/types'
 import { Header } from './components/Header'
 import { ErrorScreen } from './screens/ErrorScreen'
 import type { ErrorPhase } from './screens/ErrorScreen'
 import { ProgressScreen } from './screens/ProgressScreen'
 import type { ProgressPhase } from './screens/ProgressScreen'
+import { RecheckReportScreen } from './screens/RecheckReportScreen'
+import { RecheckConfirmScreen, RecheckUploadScreen } from './screens/RecheckScreen'
 import { ReportScreen } from './screens/ReportScreen'
 import { ReviewScreen } from './screens/ReviewScreen'
 import { StartScreen } from './screens/StartScreen'
 import { UploadScreen } from './screens/UploadScreen'
+import { emptyRecheckUpload } from './state/recheck'
+import type { RecheckCarry, RecheckUpload } from './state/recheck'
 import { emptyUploadDraft, manualFromDraft } from './state/upload'
 import type { UploadDraft } from './state/upload'
 
 // S1 시작 → S2 업로드 → S3 분석 중 → S4 내용 확인·수정 → S5 리포트
+// S6 계약 후 재확인(올리기 → 날짜 확인) → S3 → S7 계약 후 재확인서
 type View =
+  | { name: 'recheck' }
+  | { name: 'recheck-report' }
   | { name: 'start' }
   | { name: 'upload' }
   | { name: 'progress'; phase: ProgressPhase; startedAt: number; hasContract: boolean; source: Mode }
@@ -46,6 +60,14 @@ export default function App() {
   const [lastDemo, setLastDemo] = useState<DemoScenario>('C')
   // [빠진 내용 채우기]로 S4에 갈 때: 확인하지 못한 규칙 ID (S4가 관련된 빈 칸으로 이동한다)
   const [reviewFocus, setReviewFocus] = useState<string[] | null>(null)
+
+  // 계약 후 재확인. 아무것도 저장하지 않는다 (localStorage도 쓰지 않는다). 이 화면 흐름의 상태로만 잇는다.
+  const [recheckCarry, setRecheckCarry] = useState<RecheckCarry | null>(null)
+  const [recheckUpload, setRecheckUpload] = useState<RecheckUpload>(emptyRecheckUpload)
+  /** S6 두 번째 단계(날짜 확인)에 보여줄 재확인 요청. null이면 올리기 단계 */
+  const [recheckDraft, setRecheckDraft] = useState<RecheckRequest | null>(null)
+  const [recheckReport, setRecheckReport] = useState<RecheckReport | null>(null)
+  const [recheckDemoLoading, setRecheckDemoLoading] = useState(false)
 
   // 지금 진행 중인 요청. 새 요청을 시작하거나 취소하면 이전 요청의 결과는 버린다.
   const running = useRef<{ id: number; controller: AbortController | null }>({ id: 0, controller: null })
@@ -171,6 +193,96 @@ export default function App() {
     }
   }
 
+  /** S6 열기. carry가 있으면 그 계약서를 그대로 쓰고 등기부만 새로 올린다 */
+  function openRecheck(carry: RecheckCarry | null) {
+    cancelRunning()
+    setChecking(false)
+    setRecheckCarry(carry)
+    setRecheckUpload(emptyRecheckUpload())
+    setRecheckDraft(null)
+    setView({ name: 'recheck' })
+  }
+
+  /** S6 올리기 → S3 → S6 날짜 확인 */
+  async function runRecheckExtract() {
+    const registry = recheckUpload.registry
+    const contractFile = recheckCarry ? null : recheckUpload.contract
+    if (!registry || (!recheckCarry && !contractFile)) return
+    const task = beginTask()
+    setView({
+      name: 'progress',
+      phase: 'recheck-extract',
+      startedAt: Date.now(),
+      hasContract: contractFile !== null,
+      source: 'live',
+    })
+    try {
+      const res = await extract(registry, contractFile, task.signal)
+      if (!task.isCurrent()) return
+      const contract = recheckCarry?.contract ?? res.contract
+      if (!contract) {
+        throw new ApiError('계약서를 읽지 못했어요. 계약서 사진이나 PDF를 다시 올려 주세요.', 'NOT_CONTRACT')
+      }
+      setRecheckDraft({
+        registry: res.registry,
+        contract,
+        baseline_viewed_at: recheckCarry?.baselineViewedAt ?? null,
+        today: null,
+        mode: 'live',
+      })
+      setView({ name: 'recheck' })
+    } catch (err) {
+      if (task.isCurrent()) showError('recheck-extract', task, err)
+    } finally {
+      task.finish()
+    }
+  }
+
+  /** S6 날짜 확인 → (S3) → S7 */
+  async function runRecheck(req: RecheckRequest) {
+    const task = beginTask()
+    setRecheckDraft(req)
+    setChecking(true)
+    const startedAt = Date.now()
+    const showProgress = window.setTimeout(() => {
+      if (!task.isCurrent()) return
+      setView({ name: 'progress', phase: 'recheck', startedAt, hasContract: true, source: req.mode })
+    }, CHECK_PROGRESS_DELAY_MS)
+    try {
+      const result = await recheck(req, task.signal)
+      if (!task.isCurrent()) return
+      setRecheckReport(result)
+      setView({ name: 'recheck-report' })
+    } catch (err) {
+      if (task.isCurrent()) showError('recheck', task, err)
+    } finally {
+      window.clearTimeout(showProgress)
+      task.finish()
+      if (task.isCurrent()) setChecking(false)
+    }
+  }
+
+  /** S1 예시 "A 집, 잔금 이틀 전 근저당이 생긴 경우" → S7 (예시의 today·mode를 그대로 쓴다) */
+  async function loadRecheckDemo() {
+    const task = beginTask()
+    setRecheckDemoLoading(true)
+    try {
+      const req = await demoRecheck(task.signal)
+      if (!task.isCurrent()) return
+      const result = await recheck(req, task.signal)
+      if (!task.isCurrent()) return
+      setRecheckCarry({ contract: req.contract, baselineViewedAt: req.baseline_viewed_at })
+      setRecheckDraft(req)
+      setRecheckReport(result)
+      setView({ name: 'recheck-report' })
+    } catch (err) {
+      if (task.isCurrent()) showError('recheck-demo', task, err)
+    } finally {
+      task.finish()
+      setRecheckDemoLoading(false)
+    }
+  }
+
   function goHome() {
     cancelRunning()
     setReviewFocus(null)
@@ -179,17 +291,30 @@ export default function App() {
     setUpload(emptyUploadDraft())
     setRequest(null)
     setReport(null)
+    setRecheckCarry(null)
+    setRecheckUpload(emptyRecheckUpload())
+    setRecheckDraft(null)
+    setRecheckReport(null)
     setView({ name: 'start' })
   }
 
   function cancelProgress(phase: ProgressPhase) {
     cancelRunning()
     setChecking(false)
-    setView(phase === 'extract' ? { name: 'upload' } : { name: 'review' })
+    if (phase === 'extract') setView({ name: 'upload' })
+    else if (phase === 'check') setView({ name: 'review' })
+    else if (phase === 'recheck-extract') {
+      setRecheckDraft(null)
+      setView({ name: 'recheck' })
+    } else setView({ name: 'recheck' })
   }
 
   const demoMarker =
-    view.name === 'report'
+    view.name === 'recheck-report'
+      ? recheckReport?.mode === 'demo'
+      : view.name === 'progress' && view.phase === 'recheck'
+        ? view.source === 'demo'
+        : view.name === 'report'
       ? report?.mode === 'demo'
       : request?.mode === 'demo' &&
         (view.name === 'review' ||
@@ -204,6 +329,9 @@ export default function App() {
           onUpload={() => setView({ name: 'upload' })}
           onDemo={loadDemo}
           demoLoading={demoLoading}
+          onRecheck={() => openRecheck(null)}
+          onRecheckDemo={loadRecheckDemo}
+          recheckDemoLoading={recheckDemoLoading}
         />
       )
       break
@@ -236,11 +364,18 @@ export default function App() {
           onRetry={() => {
             if (phase === 'extract') void runExtract()
             else if (phase === 'check' && request) void runCheck(request)
+            else if (phase === 'recheck-extract') void runRecheckExtract()
+            else if (phase === 'recheck' && recheckDraft) void runRecheck(recheckDraft)
+            else if (phase === 'recheck-demo') void loadRecheckDemo()
             else void loadDemo(lastDemo)
           }}
           onBack={() => {
             if (phase === 'extract') setView({ name: 'upload' })
             else if (phase === 'check' && request) setView({ name: 'review' })
+            else if (phase === 'recheck-extract') {
+              setRecheckDraft(null)
+              setView({ name: 'recheck' })
+            } else if (phase === 'recheck' && recheckDraft) setView({ name: 'recheck' })
             else goHome()
           }}
           onDemo={loadDemo}
@@ -272,6 +407,47 @@ export default function App() {
           onFillMissing={(unknownRuleIds) => {
             setReviewFocus(unknownRuleIds)
             setView({ name: 'review' })
+          }}
+          onRecheck={() =>
+            openRecheck(
+              request?.contract
+                ? { contract: request.contract, baselineViewedAt: request.registry.viewed_at }
+                : null,
+            )
+          }
+          onHome={goHome}
+        />
+      ) : null
+      break
+    case 'recheck':
+      screen = recheckDraft ? (
+        <RecheckConfirmScreen
+          key={recheckDraft.registry.viewed_at ?? 'confirm'}
+          draft={recheckDraft}
+          checking={checking}
+          onRecheck={runRecheck}
+          onReselect={() => setRecheckDraft(null)}
+          onHome={goHome}
+        />
+      ) : (
+        <RecheckUploadScreen
+          carry={recheckCarry}
+          upload={recheckUpload}
+          setUpload={setRecheckUpload}
+          onSubmit={runRecheckExtract}
+          onHome={goHome}
+        />
+      )
+      break
+    case 'recheck-report':
+      screen = recheckReport ? (
+        <RecheckReportScreen
+          report={recheckReport}
+          onAgain={() => {
+            const last = recheckDraft
+            openRecheck(
+              last ? { contract: last.contract, baselineViewedAt: last.baseline_viewed_at } : recheckCarry,
+            )
           }}
           onHome={goHome}
         />

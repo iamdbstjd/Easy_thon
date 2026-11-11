@@ -2,12 +2,15 @@ import type { DemoScenario } from '../api/types'
 import { ExampleLinks } from '../components/ExampleLinks'
 import { useScreenFocus } from '../lib/useScreenFocus'
 
-export type ErrorPhase = 'extract' | 'check' | 'demo'
+export type ErrorPhase = 'extract' | 'check' | 'demo' | 'recheck-extract' | 'recheck' | 'recheck-demo'
 
 const TITLES: Record<ErrorPhase, string> = {
   extract: '분석 실패',
   check: '검사 실패',
   demo: '예시 결과 불러오기 실패',
+  'recheck-extract': '분석 실패',
+  recheck: '재확인 실패',
+  'recheck-demo': '예시 결과 불러오기 실패',
 }
 
 /** UNSUPPORTED_FILE일 때는 서버 문장 대신 원인과 해결 방법을 한 번에 쓴다 (같은 말을 두 번 하지 않게) */
@@ -18,6 +21,9 @@ const BACK_LABELS: Record<ErrorPhase, string> = {
   extract: '서류 다시 고르기',
   check: '내용 확인으로',
   demo: '처음으로',
+  'recheck-extract': '서류 다시 고르기',
+  recheck: '날짜 확인으로',
+  'recheck-demo': '처음으로',
 }
 
 /** S3 오류: [다시 시도] + 예시 결과 보기 */
@@ -53,7 +59,9 @@ export function ErrorScreen({
           {TITLES[phase]}
         </h1>
         <p role="alert">
-          {phase === 'extract' && code === 'UNSUPPORTED_FILE' ? UNSUPPORTED_FILE_TEXT : message}
+          {(phase === 'extract' || phase === 'recheck-extract') && code === 'UNSUPPORTED_FILE'
+            ? UNSUPPORTED_FILE_TEXT
+            : message}
         </p>
       </div>
 
@@ -74,7 +82,7 @@ export function ErrorScreen({
         )}
       </div>
 
-      {phase !== 'demo' && (
+      {phase !== 'demo' && phase !== 'recheck-demo' && (
         <section className="doc-section" aria-labelledby="error-example-title">
           <h2 id="error-example-title">예시 결과 보기</h2>
           <ExampleLinks loading={demoLoading} onSelect={onDemo} />

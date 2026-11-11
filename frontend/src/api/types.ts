@@ -191,7 +191,7 @@ export interface ChecklistItem {
   title: string
 }
 
-/** 계약서·등기부 대조표의 한 행 (F14). 등급은 rule_id 규칙의 등급과 같다. */
+/** 계약서·등기부 대조표의 한 행. 등급은 rule_id 규칙의 등급과 같다. */
 export interface ComparisonRow {
   /** "임대인" · "소재지·호수" · "보증금" · "계약일" · "특약" */
   item: string
@@ -206,7 +206,7 @@ export interface ComparisonRow {
   note: string
 }
 
-/** 계약서에서 고칠 곳 한 줄 (F15) */
+/** 계약서에서 고칠 곳 한 줄 */
 export interface AmendmentFix {
   /** "임대인" · "소재지" */
   item: string
@@ -217,7 +217,7 @@ export interface AmendmentFix {
   reason: string
 }
 
-/** 계약서 수정 요청서 (계약서가 없으면 계약 전 요청서) (F15) */
+/** 계약서 수정 요청서 (계약서가 없으면 계약 전 요청서) */
 export interface Amendment {
   /** "계약서 수정 요청서" · "계약 전 요청서" */
   title: string
@@ -237,13 +237,74 @@ export interface Report {
   overall: Overall
   counts: Counts
   results: RuleResult[]
-  /** 계약서·등기부 대조표 (F14) */
+  /** 계약서·등기부 대조표 */
   comparison: ComparisonRow[]
-  /** 계약서 수정 요청서 (F15). 이 필드가 없는 예전 백엔드면 null */
+  /** 계약서 수정 요청서. 이 필드가 없는 예전 백엔드면 null */
   amendment: Amendment | null
   request_message: string | null
   special_terms: string[]
   checklist: ChecklistItem[]
+  disclaimer: string
+}
+
+// ---------------------------------------------------------------------------
+// 계약 후 재확인 (잔금 전·입주 후)
+// ---------------------------------------------------------------------------
+
+export type RecheckPhase = 'before_balance' | 'balance_day' | 'after_move_in'
+
+/** 오늘 뗀 등기부를 계약서와 맞춰 본다. 계약 당시 등기부는 저장하지 않는다. */
+export interface RecheckRequest {
+  /** 오늘 뗀 등기부 */
+  registry: RegistryExtract
+  /** 계약서 (다시 올린 것, 또는 같은 화면 흐름에서 이어 받은 것) */
+  contract: ContractExtract
+  /** 계약 때 본 등기부 열람 일시 (같은 화면에서 이어 올 때만) */
+  baseline_viewed_at: ISODateTime | null
+  /** 없으면 서버가 현재 한국 날짜로 채운다 */
+  today: ISODate | null
+  mode: Mode
+}
+
+/** 계약 후(비교 기준일 이후) 새로 생긴 등기 한 줄 */
+export interface RecheckChange {
+  section: 'gapgu' | 'eulgu'
+  rank: string
+  purpose: string
+  received_at: ISODate | null
+  holders: string[]
+  amount: number | null
+  level: Level
+  note: string
+  page: number | null
+  source_text: string
+}
+
+export type TermStatus = '위반' | '미이행' | '이행' | '확인 필요'
+
+/** 계약서 특약 한 개의 이행 여부 */
+export interface TermCheck {
+  term: string
+  status: TermStatus
+  level: Level
+  note: string
+}
+
+export interface RecheckReport {
+  mode: Mode
+  generated_at: ISODateTime
+  today: ISODate
+  phase: RecheckPhase
+  /** 이 날짜 이후 접수된 권리를 새것으로 본다 */
+  baseline_date: ISODate | null
+  contract_date: ISODate | null
+  balance_date: ISODate | null
+  move_in_date: ISODate | null
+  address: string | null
+  overall: Overall
+  changes: RecheckChange[]
+  term_checks: TermCheck[]
+  actions: string[]
   disclaimer: string
 }
 

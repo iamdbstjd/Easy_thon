@@ -31,9 +31,13 @@ from app.schemas import (
     Counts,
     IcsRequest,
     Overall,
+    RecheckChange,
+    RecheckReport,
+    RecheckRequest,
     RegistryExtract,
     Report,
     RuleResult,
+    TermCheck,
 )
 
 # ---------------------------------------------------------------------------
@@ -222,7 +226,15 @@ def test_error_messages_match_prd():
 
 def test_openapi_schema_builds(client):
     paths = client.get("/openapi.json").json()["paths"]
-    assert {"/api/extract", "/api/check", "/api/demo/{scenario}", "/api/health", "/api/checklist.ics"} <= set(paths)
+    assert {
+        "/api/extract",
+        "/api/check",
+        "/api/demo/{scenario}",
+        "/api/health",
+        "/api/checklist.ics",
+        "/api/recheck",
+        "/api/demo/recheck-A",
+    } <= set(paths)
 
 
 # ---------------------------------------------------------------------------
@@ -1051,3 +1063,177 @@ def test_env_example_documents_api_key():
 def test_request_id_is_unique_per_request(client):
     ids = {client.get("/api/health").headers["x-request-id"] for _ in range(3)}
     assert len(ids) == 3
+
+
+# ---------------------------------------------------------------------------
+# 계약 후 재확인: POST /api/recheck, GET /api/demo/recheck-A
+# ---------------------------------------------------------------------------
+
+RECHECK_FIXTURE = {
+    "registry": {
+        **REGISTRY_OK,
+        "eulgu": [
+            {
+                "page": 3,
+                "source_text": "1 근저당권설정 2026년11월27일 제9999호 채권최고액 금120,000,000원 "
+                "채무자 김민수 800101-1234567 근저당권자 주식회사○○은행 110111-*******",
+                "rank": "1",
+                "purpose": "근저당권설정",
+                "received_at": "2026-11-27",
+                "cause": "설정계약",
+                "holders": ["주식회사○○은행"],
+                "amount": 120000000,
+                "is_cancelled": False,
+            }
+        ],
+    },
+    "contract": CONTRACT_OK,
+    "today": "2026-11-29",
+}
+
+
+def make_recheck_report(req: RecheckRequest) -> RecheckReport:
+    """규칙 엔진 대신 쓰는 가짜 리포트. 입력의 원문을 그대로 옮겨 가림 처리를 확인한다."""
+    entry = req.registry.eulgu[0] if req.registry.eulgu else None
+    return RecheckReport(
+        mode=req.mode,
+        generated_at=dt.datetime(2026, 11, 29, 10, 0, tzinfo=KST),
+        today=req.today,
+        phase="before_balance",
+        baseline_date=req.contract.contract_date,
+        contract_date=req.contract.contract_date,
+        balance_date=req.contract.balance_date,
+        overall=Overall(level="red", title="잔금 보류 권장", message="계약 후 새로 생긴 권리가 1건 있어요."),
+        changes=[
+            RecheckChange(
+                section="eulgu",
+                rank=entry.rank,
+                purpose=entry.purpose,
+                received_at=entry.received_at,
+                holders=["김민수 800101-1******"],
+                amount=entry.amount,
+                level="red",
+                note="계약 후 새로 생긴 근저당권설정",
+                page=entry.page,
+                source_text=entry.source_text,
+            )
+        ]
+        if entry
+        else [],
+        term_checks=[TermCheck(term=req.contract.special_terms[0], status="위반", level="red", note="담보 설정 금지 위반")],
+        actions=["잔금을 보내기 전에 임대인(800101-1234567)에게 말소를 요구하세요."],
+        disclaimer="이 결과는 참고 정보예요.",
+    )
+
+
+@pytest.fixture
+def fake_recheck(monkeypatch):
+    seen: list[RecheckRequest] = []
+
+    def fake(req):
+        seen.append(req)
+        return make_recheck_report(req)
+
+    monkeypatch.setattr(main, "build_recheck", fake)
+    return seen
+
+
+def test_recheck_calls_rules_engine(client, fake_recheck):
+    r = client.post("/api/recheck", json=RECHECK_FIXTURE)
+    assert r.status_code == 200, r.text
+    report = RecheckReport.model_validate(r.json())
+    assert (report.mode, report.today, report.phase) == ("live", dt.date(2026, 11, 29), "before_balance")
+    assert report.overall.title == "잔금 보류 권장"
+    (req,) = fake_recheck
+    assert isinstance(req, RecheckRequest)
+    assert req.registry.eulgu[0].amount == 120000000
+
+
+def test_recheck_fills_today_with_korean_date(client, fake_recheck, monkeypatch):
+    monkeypatch.setattr(main, "today_kst", lambda: dt.date(2030, 1, 2))
+    r = client.post("/api/recheck", json={**RECHECK_FIXTURE, "today": None})
+    assert r.status_code == 200, r.text
+    assert fake_recheck[0].today == dt.date(2030, 1, 2)
+    assert r.json()["today"] == "2030-01-02"
+
+
+def test_recheck_masks_resident_ids(client, fake_recheck):
+    r = client.post("/api/recheck", json=RECHECK_FIXTURE)
+    assert r.status_code == 200, r.text
+    assert UNMASKED_ID.search(r.text) is None
+    for half in ("800101", "110111"):
+        assert half not in r.text
+    change = r.json()["changes"][0]
+    assert change["holders"] == ["김민수 ******-*******"]
+    assert change["source_text"].endswith("채무자 김민수 ******-******* 근저당권자 주식회사○○은행 ******-*******")
+    assert "금120,000,000원" in change["source_text"] and change["received_at"] == "2026-11-27"
+    assert r.json()["actions"] == ["잔금을 보내기 전에 임대인(******-*******)에게 말소를 요구하세요."]
+
+
+def test_recheck_invalid_body_is_422(client, fake_recheck):
+    r = client.post("/api/recheck", json={"registry": REGISTRY_OK})  # 계약서가 빠졌다
+    assert r.status_code == 422
+    assert "detail" in r.json()
+    assert fake_recheck == []
+
+
+def test_recheck_unhandled_error_is_500(client, monkeypatch):
+    def broken(req):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(main, "build_recheck", broken)
+    assert_error(client.post("/api/recheck", json=RECHECK_FIXTURE), 500, "INTERNAL_ERROR")
+
+
+def test_recheck_demo_returns_masked_request(client, tmp_path, monkeypatch):
+    (tmp_path / "recheck-A.json").write_text(json.dumps(RECHECK_FIXTURE, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(main, "DEMO_DIR", tmp_path)
+    r = client.get("/api/demo/recheck-A")
+    assert r.status_code == 200, r.text
+    req = RecheckRequest.model_validate(r.json())
+    assert req.mode == "demo"
+    assert req.today == dt.date(2026, 11, 29)
+    assert UNMASKED_ID.search(r.text) is None
+    assert "채무자 김민수 ******-*******" in req.registry.eulgu[0].source_text
+
+
+def test_recheck_demo_missing_file_is_404(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "DEMO_DIR", tmp_path)  # recheck-A.json이 없다
+    assert_error(client.get("/api/demo/recheck-A"), 404, "NOT_FOUND")
+    assert_error(client.get("/api/demo/recheck-B"), 404, "NOT_FOUND")  # 다른 이름은 시나리오로도 없다
+
+
+def test_recheck_demo_invalid_file_is_500(client, tmp_path, monkeypatch):
+    (tmp_path / "recheck-A.json").write_text(json.dumps({"registry": REGISTRY_OK}), encoding="utf-8")
+    monkeypatch.setattr(main, "DEMO_DIR", tmp_path)
+    assert_error(client.get("/api/demo/recheck-A"), 500, "INTERNAL_ERROR")
+
+
+def test_check_demo_routes_still_work_next_to_recheck_demo(client, demo_dir):
+    assert client.get("/api/demo/A").status_code == 200
+
+
+def test_recheck_with_real_rules_engine(client):
+    try:
+        from app.rules import build_recheck
+    except ImportError:
+        pytest.skip("규칙 엔진에 build_recheck가 아직 없다")
+    req = RecheckRequest.model_validate({**RECHECK_FIXTURE, "mode": "demo"})
+    try:
+        build_recheck(req)
+    except NotImplementedError:
+        pytest.skip("build_recheck가 아직 구현되지 않았다")
+    r = client.post("/api/recheck", json=req.model_dump(mode="json"))
+    assert r.status_code == 200, r.text
+    report = RecheckReport.model_validate(r.json())
+    assert (report.mode, report.today) == ("demo", dt.date(2026, 11, 29))
+    assert UNMASKED_ID.search(r.text) is None
+
+
+def test_real_recheck_demo_file_is_valid_and_masked(client):
+    if not (config.BACKEND_DIR / "demo" / "recheck-A.json").is_file():
+        pytest.skip("demo/recheck-A.json이 아직 없다")
+    r = client.get("/api/demo/recheck-A")
+    assert r.status_code == 200, r.text
+    assert RecheckRequest.model_validate(r.json()).mode == "demo"
+    assert UNMASKED_ID.search(r.text) is None

@@ -19,9 +19,11 @@ import type {
 import { CopyButton } from '../components/CopyButton'
 import { Fold, Reveal } from '../components/Disclosure'
 import { Excerpt } from '../components/Excerpt'
+import { Glossed } from '../components/Glossed'
 import { Grade } from '../components/Grade'
 import { ResultText } from '../components/ResultText'
-import { CHECKLIST_WHEN_ORDER, COUNT_LABEL, DOC_LABEL, LEVEL_LABEL, ruleNumber } from '../content/labels'
+import { termsIn } from '../content/glossary'
+import { CHECKLIST_WHEN_ORDER, COUNT_LABEL, DOC_LABEL, LEVEL_LABEL, ruleLabel, ruleNumber } from '../content/labels'
 import { HELP_LINKS, OFF_REGISTRY_ROWS, SPECIAL_TERMS_NOTE, quickLinks } from '../content/static'
 import { formatArea, formatDate, formatPeriod, formatWon, isoToLocalInput } from '../lib/format'
 import { keepTogether } from '../lib/keepTogether'
@@ -151,8 +153,12 @@ export function ReportScreen({
               <ul className="ruled-list">
                 {unknown.map((r) => (
                   <li key={r.id}>
-                    {r.name}
-                    {r.unknown_reason && <p className="item-detail">{maskPersonal(r.unknown_reason)}</p>}
+                    {ruleLabel(r.id, r.name)}
+                    {r.unknown_reason && (
+                      <p className="item-detail">
+                        <Glossed text={maskPersonal(r.unknown_reason)} />
+                      </p>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -163,7 +169,7 @@ export function ReportScreen({
               <ul className="ruled-list">
                 {green.map((r) => (
                   <li key={r.id}>
-                    {r.name}
+                    {ruleLabel(r.id, r.name)}
                     {r.id === 'R5' && r.summary && <p className="item-detail">{maskPersonal(r.summary)}</p>}
                   </li>
                 ))}
@@ -246,11 +252,15 @@ export function ReportScreen({
             <dl className="rows">
               <div className="row">
                 <dt>왜 중요한가</dt>
-                <dd>{row.why}</dd>
+                <dd>
+                  <Glossed text={row.why} />
+                </dd>
               </div>
               <div className="row">
                 <dt>확인 방법</dt>
-                <dd>{row.how}</dd>
+                <dd>
+                  <Glossed text={row.how} />
+                </dd>
               </div>
             </dl>
           </div>
@@ -258,6 +268,30 @@ export function ReportScreen({
       </Fold>
     ),
   })
+  // 어려운 말 풀이: 이 검토서의 위험 신호 이름과 밑줄 친 글에 나온 말만 모은다. 화면에서는 접어 두고, PDF·인쇄에서는 펼친다
+  const terms = termsIn([
+    ...flagged.flatMap((r) => [ruleLabel(r.id, r.name), r.title, r.summary, r.action]),
+    ...unknown.map((r) => r.unknown_reason),
+    ...report.checklist.map((item) => item.title),
+    ...OFF_REGISTRY_ROWS.flatMap((row) => [row.why, row.how]),
+  ])
+  if (terms.length > 0) {
+    sections.push({
+      key: 'glossary',
+      render: (n) => (
+        <Fold level={2} className="doc-section" title={`${n}. 어려운 말 풀이`}>
+          <dl className="rows">
+            {terms.map((t) => (
+              <div key={t.term} className="row">
+                <dt>{t.term}</dt>
+                <dd>{t.text}</dd>
+              </div>
+            ))}
+          </dl>
+        </Fold>
+      ),
+    })
+  }
 
   return (
     <>
@@ -908,15 +942,23 @@ function Finding({ result, number }: { result: RuleResult; number: number }) {
           <span className="visually-hidden">
             {number}. {LEVEL_LABEL[result.level]}:{' '}
           </span>
-          {result.name || maskPersonal(result.title)}
+          {result.name ? ruleLabel(result.id, result.name) : maskPersonal(result.title)}
         </h3>
       </div>
       <div className="finding-body">
-        {result.title && result.name && <p>{maskPersonal(withPeriod(result.title))}</p>}
-        {result.summary && <p>{maskPersonal(result.summary)}</p>}
+        {result.title && result.name && (
+          <p>
+            <Glossed text={maskPersonal(withPeriod(result.title))} />
+          </p>
+        )}
+        {result.summary && (
+          <p>
+            <Glossed text={maskPersonal(result.summary)} />
+          </p>
+        )}
         {result.action && (
           <p>
-            <span className="finding-action-label">할 일:</span> {maskPersonal(result.action)}
+            <span className="finding-action-label">할 일:</span> <Glossed text={maskPersonal(result.action)} />
           </p>
         )}
         {result.evidence.length > 0 && (
@@ -1011,7 +1053,7 @@ function Schedule({
                 <ul className="dot-list">
                   {group.items.map((item, i) => (
                     <li key={i}>
-                      {item.title}
+                      <Glossed text={item.title} />
                       {!sharedDate && item.date && (
                         <span className="muted"> ({formatDate(item.date, true)})</span>
                       )}

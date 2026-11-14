@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { CompareReport, ContractChange, RequestFulfillment, RuleDelta } from '../api/types'
 import { Fold } from '../components/Disclosure'
 import { Excerpt } from '../components/Excerpt'
-import { COUNT_LABEL } from '../content/labels'
+import { COUNT_LABEL, ruleLabel } from '../content/labels'
 import { formatDate } from '../lib/format'
 import { keepTogether } from '../lib/keepTogether'
 import { maskPersonal } from '../lib/mask'
@@ -83,7 +83,7 @@ export function CompareReportScreen({
                 <p className="sep-list remaining-list">
                   {remaining.map((d) => (
                     <span key={d.id} className={`grade grade-${d.after}`}>
-                      {d.name}
+                      {ruleLabel(d.id, d.name)}
                     </span>
                   ))}
                 </p>
@@ -99,7 +99,7 @@ export function CompareReportScreen({
                 <p className="sep-list remaining-list">
                   {turnedUnknown.map((d) => (
                     <span key={d.id} className="grade grade-unknown">
-                      {d.name}
+                      {ruleLabel(d.id, d.name)}
                     </span>
                   ))}
                 </p>
@@ -332,7 +332,7 @@ function DeltaTable({ deltas }: { deltas: RuleDelta[] }) {
           const rows = [
             <tr key={d.id} className={`cmp-row${situation ? ' has-note' : ''}`}>
               <th scope="row" className="c-item">
-                {d.name}
+                {ruleLabel(d.id, d.name)}
               </th>
               <td className="c-val" data-label="수정 전">
                 <span className={`c-text grade-${d.before}`}>{COUNT_LABEL[d.before]}</span>

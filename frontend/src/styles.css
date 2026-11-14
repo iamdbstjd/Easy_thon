@@ -1471,3 +1471,37 @@ details:not([open]) > summary .when-open {
 .pdf-capture .quick-row {
   display: none !important;
 }
+
+/* 어려운 말 풀이 (components/Glossed.tsx): 점선 밑줄 글자를 누르면 그 글 끝에 풀이가 나온다.
+   상자·바탕색 없이 왼쪽 선 하나로 본문과 구분한다 */
+.term {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  cursor: help;
+}
+.term[aria-expanded='true'] {
+  text-decoration-style: solid;
+}
+.term-note {
+  display: block;
+  margin: 6px 0 2px;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--rule-strong);
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 400;
+}
+.term-note-word {
+  color: var(--text);
+  font-weight: 700;
+}

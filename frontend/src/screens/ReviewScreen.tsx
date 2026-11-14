@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useId, useState } from 'react'
 import type { BuildingInsight, CheckRequest, Entry } from '../api/types'
 import { Excerpt } from '../components/Excerpt'
+import { Glossed } from '../components/Glossed'
 import {
   DateField,
   DateTimeField,
@@ -123,6 +124,9 @@ export function ReviewScreen({
         <h2 id="review-gapgu">
           갑구 <span className="heading-note">소유권</span>
         </h2>
+        <p className="muted">
+          <Glossed text="집주인이 누구인지, 압류·가압류처럼 집주인의 소유권에 걸린 일이 적힌 부분이에요." />
+        </p>
         <EntryTable entries={registry.gapgu} caption="갑구 (소유권에 관한 사항)" />
       </section>
 
@@ -130,6 +134,9 @@ export function ReviewScreen({
         <h2 id="review-eulgu">
           을구 <span className="heading-note">근저당·전세권 등 소유권 외 권리</span>
         </h2>
+        <p className="muted">
+          <Glossed text="집을 담보로 빌린 돈(근저당)이나 전세권처럼 다른 사람의 권리가 적힌 부분이에요. 금액이 채권최고액이면 은행이 이 집에서 최대한 받아 갈 수 있는 돈이에요." />
+        </p>
         <EntryTable entries={registry.eulgu} caption="을구 (소유권 외의 권리에 관한 사항)" />
       </section>
 
@@ -324,7 +331,7 @@ function EntryTable({ entries, caption }: { entries: Entry[]; caption: string })
                 <td className="c-rank c-nowrap">{entry.rank}</td>
                 <td className="c-purpose">
                   <span className="entry-purpose">{entry.purpose ? maskPersonal(entry.purpose) : '목적 없음'}</span>
-                  {entry.is_cancelled && ' (말소)'}
+                  {entry.is_cancelled && ' (말소: 지워진 기록)'}
                   {/* 원인은 목적에 이미 들어 있지 않을 때만 덧붙인다 ("소유권이전, 신탁" + "신탁" → 생략) */}
                   {entry.cause && !entry.purpose.includes(entry.cause) && (
                     <span className="muted"> · {maskPersonal(entry.cause)}</span>

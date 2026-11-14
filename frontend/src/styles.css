@@ -1236,7 +1236,7 @@ details:not([open]) > summary .when-open {
 }
 
 /* ---------------------------------------------------------------------------
-   계약서 사진 가리기: 사진 미리보기(1px 테두리) 위에 검게 칠한다
+   계약서 사진 가리기: 사진 미리보기(1px 선) 위에 네모로 검게 가린다. −/+로 키워서 옮겨 가며 가린다
    --------------------------------------------------------------------------- */
 
 .mask-tool {
@@ -1247,36 +1247,56 @@ details:not([open]) > summary .when-open {
 .mask-tool > * + * {
   margin-top: 6px;
 }
-.mask-choices {
+.mask-zoom {
   display: flex;
   flex-wrap: wrap;
-  gap: 0 24px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.choice {
-  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
+  gap: 4px 8px;
+}
+.zoom-button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
   cursor: pointer;
 }
-/* 사진 비율 그대로, 칸 폭과 화면 높이 안에 들어오게. 칠하는 동안 화면이 움직이지 않게 한다 */
+.zoom-button:disabled {
+  color: var(--rule);
+  border-color: var(--rule);
+  cursor: default;
+}
+.zoom-level {
+  min-width: 3.5em;
+  text-align: center;
+}
+/* 사진 비율 그대로 칸 폭과 화면 높이(70%) 안에 맞춘 틀. 키우면 틀 안에서 움직인다 (선은 outline이라 크기에 안 들어간다) */
+.mask-viewport {
+  max-width: 100%;
+  overflow: hidden;
+  outline: 1px solid var(--rule);
+}
+.mask-viewport[data-zoomed] {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.mask-viewport[hidden] {
+  display: none;
+}
+/* 끄는 동안 화면이 움직이지 않게 한다 */
 .mask-canvas {
   display: block;
-  max-width: 100%;
-  max-height: 70vh;
-  width: auto;
+  max-width: none;
   height: auto;
-  border: 1px solid var(--rule);
   touch-action: none;
   cursor: crosshair;
   user-select: none;
   -webkit-user-select: none;
-}
-.mask-canvas[hidden] {
-  display: none;
 }
 .mask-actions {
   display: flex;

@@ -9,6 +9,7 @@ PLAN.md
 .git
 **/node_modules
 frontend/dist
+frontend/public/ocr
 backend/.venv
 **/__pycache__
 **/.pytest_cache

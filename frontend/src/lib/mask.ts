@@ -28,7 +28,7 @@ const BACK7 = `${ID_CHAR}${HSPACE}?${ID_CHAR}{6}`
 const WITH_DASH = `${ID_CHAR}{6}${SPACE}*${DASH}${SPACE}*${BACK7}`
 const BIRTH_DATE = `${YYMMDD}${GAP}(?:[1-8１-８]|${MASK_CHAR})${HSPACE}?${ID_CHAR}{6}`
 // 앞뒤가 숫자로 이어지면 주민등록번호가 아니다. 이름의 ○ 바로 뒤에 붙어 있어도 잡는다.
-const RESIDENT_ID = new RegExp(`(?<!${D})(?:${WITH_DASH}|${BIRTH_DATE})(?!${D})`, 'gu')
+export const RESIDENT_ID = new RegExp(`(?<!${D})(?:${WITH_DASH}|${BIRTH_DATE})(?!${D})`, 'gu')
 
 const PHONE_DASH = '[-‐‑‒–—−－.ㅡ]'
 const PHONE_SEP = `(?:${HSPACE}?${PHONE_DASH}${HSPACE}?|${HSPACE})`
@@ -38,7 +38,7 @@ const AREA = '[0０][2２]|[0０][3-6３-６][1-5１-５]|[0０][7７][0０]|[0�
 const INTL = '[+＋][8８][2２]'
 const INTL_CODE = '[1１][016789０１６７８９]|[2２]|[3-6３-６][1-5１-５]|[7７][0０]'
 // 휴대전화·국제 표기는 구분 글자가 없어도 잡는다. 지역번호·인터넷전화는 구분 글자가 있을 때만 (다른 번호와 헷갈리지 않게).
-const PHONE_NUMBER = new RegExp(
+export const PHONE_NUMBER = new RegExp(
   `(?<!${D})(?<!${D}${PHONE_DASH})` +
     `(?:(?<intl>${INTL}${PHONE_SEP}?(?:${INTL_CODE}))${PHONE_SEP}?${D}{3,4}${PHONE_SEP}?${D}{4}` +
     `|(?<mobile>${MOBILE})${PHONE_SEP}?${D}{3,4}${PHONE_SEP}?${D}{4}` +

@@ -1,11 +1,17 @@
-// 계약서 사진 가리기: 검은 붓질과 검은 네모. 좌표는 사진 픽셀 기준이다.
+// 계약서 사진 가리기: 검은 네모. 좌표는 사진 픽셀 기준이다.
+// 흐리게 하지 않고 불투명한 검정으로 칠해서, 보내는 사진에서는 가린 곳이 완전히 지워진다.
 
 import { decodeImage, JPEG_QUALITY } from './files'
 
-export type MaskMark =
-  /** 붓질: [x0, y0, x1, y1, …] */
-  | { kind: 'stroke'; width: number; points: number[] }
-  | { kind: 'rect'; x: number; y: number; w: number; h: number }
+export interface MaskMark {
+  kind: 'rect'
+  x: number
+  y: number
+  w: number
+  h: number
+  /** 자동으로 찾아 가린 곳 (주민등록번호·전화번호·계좌번호). 사용자가 끈 네모는 없음 */
+  auto?: boolean
+}
 
 const MASK_COLOR = '#000000'
 
@@ -13,29 +19,7 @@ const MASK_COLOR = '#000000'
 export function drawMarks(ctx: CanvasRenderingContext2D, marks: readonly MaskMark[]) {
   ctx.save()
   ctx.fillStyle = MASK_COLOR
-  ctx.strokeStyle = MASK_COLOR
-  ctx.lineCap = 'round'
-  ctx.lineJoin = 'round'
-  for (const mark of marks) {
-    if (mark.kind === 'rect') {
-      ctx.fillRect(mark.x, mark.y, mark.w, mark.h)
-      continue
-    }
-    const p = mark.points
-    if (p.length < 2) continue
-    if (p.length === 2) {
-      // 한 번 누르기만 했으면 점 하나
-      ctx.beginPath()
-      ctx.arc(p[0], p[1], mark.width / 2, 0, Math.PI * 2)
-      ctx.fill()
-      continue
-    }
-    ctx.lineWidth = mark.width
-    ctx.beginPath()
-    ctx.moveTo(p[0], p[1])
-    for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1])
-    ctx.stroke()
-  }
+  for (const mark of marks) ctx.fillRect(mark.x, mark.y, mark.w, mark.h)
   ctx.restore()
 }
 

@@ -14,15 +14,20 @@ export interface FilePick {
   kind: 'photo' | 'pdf'
   /** 가리기 전 사진(줄인 JPEG). 다시 가리기·되돌리기에 쓴다. 가릴 수 없는 파일이거나 보낸 뒤에는 null */
   source: File | null
-  /** 가린 곳 (사진 픽셀 좌표) */
+  /** 가린 곳 (사진 픽셀 좌표). 자동으로 찾은 곳(auto)이 앞에, 사용자가 끈 네모가 뒤에 온다 */
   marks: MaskMark[]
+  /** 자동 가리기 (lib/autoMask.ts): 가릴 수 있는 사진이면 고르자마자 'pending', 다 찾으면 'done' */
+  auto: 'off' | 'pending' | 'done'
+  /** 자동으로 찾아 가린 곳의 수 (사용자가 지워도 그대로) */
+  autoFound: number
 }
 
 let nextPickId = 0
 
 export function newPick(file: File, kind: FilePick['kind'], maskable: boolean): FilePick {
   nextPickId += 1
-  return { id: `pick-${nextPickId}`, file, kind, source: maskable && kind === 'photo' ? file : null, marks: [] }
+  const masks = maskable && kind === 'photo'
+  return { id: `pick-${nextPickId}`, file, kind, source: masks ? file : null, marks: [], auto: masks ? 'pending' : 'off', autoFound: 0 }
 }
 
 /**

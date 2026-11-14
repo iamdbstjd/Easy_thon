@@ -1486,7 +1486,9 @@ details:not([open]) > summary .when-open {
   text-align: inherit;
   text-decoration: underline dotted;
   text-decoration-thickness: 1px;
-  text-underline-offset: 4px;
+  /* 한글 받침 아래로 띄운다 (글자 아래 끝에서 3px) */
+  text-underline-position: under;
+  text-underline-offset: 3px;
   cursor: help;
 }
 .term[aria-expanded='true'] {

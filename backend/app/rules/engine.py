@@ -755,6 +755,11 @@ def rule_r9(ctx: Ctx) -> RuleResult:
     if b is None:
         return _unknown("R9", "건축물대장 정보가 없어요")
     if b.is_violating is None:
+        if b.source == "api":
+            # 공개 건축물대장 자료에는 위반 표시가 없다 (용도는 확인했어도)
+            return _unknown(
+                "R9", "공개 건축물대장 자료에는 위반건축물 표시가 없어요. 정부24나 세움터에서 건축물대장을 떼어 확인하세요"
+            )
         return _unknown("R9", "건축물대장에서 위반건축물 여부를 확인하지 못했어요")
     source = "건축물대장 API" if b.source == "api" else "건축물대장"
     text = (b.source_text or "").strip() or f"{source} 위반건축물 여부: {'예' if b.is_violating else '아니오'}"

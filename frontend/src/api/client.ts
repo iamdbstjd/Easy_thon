@@ -8,6 +8,7 @@ import {
   normCompareReport,
   normCompareRequest,
   normContract,
+  normBuildingInsight,
   normExtractResponse,
   normMarketInsight,
   normRecheckReport,
@@ -15,6 +16,7 @@ import {
   normReport,
 } from './normalize'
 import type {
+  BuildingInsight,
   ChecklistItem,
   CheckRequest,
   CompareReport,
@@ -174,6 +176,27 @@ export async function marketLookup(req: CheckRequest, signal?: AbortSignal): Pro
   } catch (err) {
     if (signal?.aborted) throw err
     return normMarketInsight({ status: 'unavailable', message: '지금은 실거래 정보를 불러오지 못했어요.' })
+  }
+}
+
+/**
+ * POST /api/building: 등기부 소재지번으로 국토교통부 건축물대장을 찾아 건물·호실 용도를 받는다 (AI를 부르지 않는다).
+ * 실패해도 검사는 막지 않는다. 오류는 "불러오지 못함"으로 바꿔 돌려준다.
+ */
+export async function buildingLookup(req: CheckRequest, signal?: AbortSignal): Promise<BuildingInsight> {
+  try {
+    const data = IS_MOCK
+      ? await (await loadMocks()).building(req, signal)
+      : await sendJson('/api/building', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(req),
+          signal,
+        })
+    return normBuildingInsight(data)
+  } catch (err) {
+    if (signal?.aborted) throw err
+    return normBuildingInsight({ status: 'unavailable', message: '지금은 건축물대장을 불러오지 못했어요.' })
   }
 }
 

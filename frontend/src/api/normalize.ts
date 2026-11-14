@@ -5,6 +5,7 @@
 
 import type {
   Amendment,
+  BuildingInsight,
   CompareReport,
   CompareRequest,
   Counts,
@@ -484,6 +485,30 @@ export function normMarketInsight(raw: unknown): MarketInsight {
     deals: list(v.deals)
       .map(normMarketDeal)
       .filter((d): d is MarketDeal => d !== null),
+    notes: strList(v.notes),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// /api/building
+// ---------------------------------------------------------------------------
+
+/** 응답이 이상하면 "불러오지 못함"으로 본다 (검사는 그대로 진행한다) */
+export function normBuildingInsight(raw: unknown): BuildingInsight {
+  const v = obj(raw)
+  const count = (x: unknown) => {
+    const n = num(x)
+    return n !== null && n > 0 ? n : null
+  }
+  return {
+    status: oneOf(v.status, ['ok', 'not_found', 'unavailable'] as const) ?? 'unavailable',
+    message: str(v.message),
+    building: normBuilding(v.building),
+    name: str(v.name),
+    use_approval_date: str(v.use_approval_date),
+    households: count(v.households),
+    families: count(v.families),
+    units: count(v.units),
     notes: strList(v.notes),
   }
 }

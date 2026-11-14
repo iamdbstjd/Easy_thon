@@ -108,6 +108,7 @@ class Region:
     dong: str  # 법정동(읍면동) 이름
     li: str  # 리 이름 (없으면 "")
     name: str  # 화면용: "용인시 수지구 죽전동"
+    adm: str = ""  # 법정동코드 10자리 (건축물대장 조회에 쓴다)
 
 
 _JIBUN = re.compile(r"^(산\s*)?\d+(-\d+)?(번지)?$")
@@ -165,7 +166,7 @@ async def _region(client: httpx.AsyncClient, area: str, key: str) -> Optional[Re
     if pick and len(str(pick.get("admCd", ""))) >= 5:
         dong, li = str(pick.get("emdNm") or ""), str(pick.get("liNm") or "")
         name = " ".join(p for p in (pick.get("sggNm"), dong, li) if p)
-        region = Region(lawd=str(pick["admCd"])[:5], dong=dong, li=li, name=name)
+        region = Region(lawd=str(pick["admCd"])[:5], dong=dong, li=li, name=name, adm=str(pick["admCd"]))
     _region_cache[area] = (time.monotonic(), region)
     return region
 

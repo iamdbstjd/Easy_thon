@@ -147,6 +147,24 @@ class BuildingRegister(Model):
     source_text: Optional[TextStr] = None
 
 
+class BuildingInsight(Model):
+    """POST /api/building 응답: 건축물대장으로 본 건물·호실 용도.
+
+    building은 검사 입력의 building 칸에 그대로 넣을 수 있다 (R10). 공개 자료에 위반 표시가 없어
+    building.is_violating은 비어 있다. status가 ok가 아니면 message를 보여 준다.
+    """
+
+    status: Literal["ok", "not_found", "unavailable"]
+    message: Optional[TextStr] = None
+    building: Optional[BuildingRegister] = None
+    name: Optional[NameStr] = None  # 건물 이름
+    use_approval_date: Optional[BoundedDate] = None  # 사용승인일
+    households: Optional[int] = Field(default=None, ge=0, le=1_000_000)  # 세대 수 (공동주택)
+    families: Optional[int] = Field(default=None, ge=0, le=1_000_000)  # 가구 수 (다가구)
+    units: Optional[int] = Field(default=None, ge=0, le=1_000_000)  # 호 수
+    notes: list[TextStr] = Field(default_factory=list, max_length=10)
+
+
 class MarketPrice(Model):
     price: Optional[Won] = None
     method: Literal["same_building", "same_dong", "manual"] = "manual"

@@ -34,6 +34,7 @@ from starlette.formparsers import MultiPartParser  # noqa: E402
 from starlette.staticfiles import StaticFiles  # noqa: E402
 
 from app import extract, ics, pdf_sandbox, privacy, uploads  # noqa: E402
+from app import building as building_api  # noqa: E402
 from app import market as market_api  # noqa: E402
 from app.errors import DOCUMENTS, ApiError, api_error_handler, api_error_response, error_response  # noqa: E402
 from app.rules import build_report  # noqa: E402
@@ -44,6 +45,7 @@ from app.schemas import (  # noqa: E402
     ContractExtract,
     ErrorResponse,
     ExtractResponse,
+    BuildingInsight,
     HealthResponse,
     IcsRequest,
     MarketInsight,
@@ -92,7 +94,7 @@ STARTED_AT = "started_at"  # scope["state"]에 넣는 요청 시작 시각 (이�
 # 배포하는 곳에서 RATE_LIMIT_EXTRACT_PER_HOUR, RATE_LIMIT_MARKET_PER_HOUR로 바꿀 수 있다.
 RATE_LIMITS = {
     "extract": ((EXTRACT_PATH, EXTRACT_CONTRACT_PATH), 60),
-    "market": (("/api/market",), 200),
+    "market": (("/api/market", "/api/building"), 200),
 }
 RATE_WINDOW_SECONDS = 3600.0
 _rate_hits: dict[tuple[str, str], deque] = {}
@@ -748,6 +750,20 @@ async def market_route(req: CheckRequest) -> MarketInsight:
     if req.mode == "demo":
         return MarketInsight(status="unavailable", message="예시에서는 실거래를 찾지 않아요.")
     return await market_api.lookup(req, req.today or today_kst())
+
+
+@app.post("/api/building", response_model=BuildingInsight)
+async def building_route(req: CheckRequest) -> BuildingInsight:
+    """국토교통부 건축물대장으로 건물 주용도와 호실 용도(검사 입력의 building)를 찾는다. AI를 부르지 않는다.
+
+    - 입력은 /api/check와 같다. 등기부 소재지번·종류·동·호만 쓴다.
+    - 주소 API에는 '시도 시군구 읍면동'까지만, 건축물대장 API에는 지역 코드와 번지만 보낸다 (호수는 보내지 않는다).
+    - 공개 자료에 위반건축물 표시가 없어 위반 여부는 비워 둔다. 예시(mode=demo)는 밖으로 부르지 않는다.
+    - 실패해도 200과 status·message로 알린다 (검사를 막지 않는다).
+    """
+    if req.mode == "demo":
+        return BuildingInsight(status="unavailable", message="예시에서는 건축물대장을 찾지 않아요.")
+    return await building_api.lookup(req)
 
 
 @app.post(

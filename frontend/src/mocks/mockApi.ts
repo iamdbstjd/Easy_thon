@@ -25,6 +25,7 @@ import type {
   DemoScenario,
   ErrorCode,
   ExtractResponse,
+  BuildingInsight,
   HealthResponse,
   IcsRequest,
   MarketInsight,
@@ -329,6 +330,27 @@ export async function extractContract(_contract: File[], signal?: AbortSignal): 
   throwMockError('contract')
   if (lastScenario === 'C') return structuredClone(C_REVISED_CONTRACT)
   return structuredClone(REQUESTS[lastScenario].contract as ContractExtract)
+}
+
+/** 건축물대장 (가짜): 다세대 302호. ?mockBuilding=none이면 불러오지 못함 */
+export async function building(req: CheckRequest, signal?: AbortSignal): Promise<BuildingInsight> {
+  await wait(500, signal)
+  if (params.get('mockBuilding') === 'none' || req.mode === 'demo') {
+    return { status: 'unavailable', message: '지금은 건축물대장을 불러오지 못했어요.', building: null, name: null,
+      use_approval_date: null, households: null, families: null, units: null, notes: [] }
+  }
+  return {
+    status: 'ok',
+    message: null,
+    building: { main_use: '공동주택(다세대주택)', unit_use: '공동주택(다세대주택)', is_violating: null, source: 'api',
+      source_text: '건축물대장(국토교통부) 302호 전유부 용도: 공동주택(다세대주택)' },
+    name: '○○파크빌',
+    use_approval_date: '2015-03-20',
+    households: 8,
+    families: null,
+    units: 8,
+    notes: ['공개 건축물대장 자료에는 위반건축물 표시가 없어요. 정부24나 세움터에서 건축물대장을 떼어 확인하세요.'],
+  }
 }
 
 /** 실거래 (가짜): 같은 건물 매매 3건, 전세 2건. ?mockMarket=none이면 찾지 못함 */

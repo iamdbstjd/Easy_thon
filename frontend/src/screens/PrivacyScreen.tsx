@@ -32,26 +32,18 @@ export function PrivacyScreen({ onBack }: { onBack: () => void }) {
         <h2 id="privacy-where">보내는 곳</h2>
         <dl className="rows">
           <div className="row">
-            <dt>보내는 것</dt>
-            <dd>올린 서류 파일(등기부·계약서의 PDF나 사진)만 보내요. 내용을 옮겨 적는 데 써요.</dd>
-          </div>
-          <div className="row">
-            <dt>받는 곳</dt>
-            <dd>OpenAI (미국)</dd>
-          </div>
-          <div className="row">
-            <dt>보내는 때</dt>
-            <dd>서류 분석을 요청할 때만 보내요.</dd>
-          </div>
-          <div className="row">
-            <dt>국외 이전</dt>
-            <dd>미국에 있는 회사로 보내므로 개인정보가 나라 밖으로 옮겨져요.</dd>
-          </div>
-          <div className="row">
-            <dt>시세 찾기</dt>
+            <dt>서류</dt>
             <dd>
-              실거래 시세를 찾으려고 등기부 주소 중 동 이름까지만(예: 경기도 용인시 수지구 죽전동) 행정안전부 주소
-              검색 서비스에, 지역 번호와 연월만 국토교통부 실거래가 공개 서비스에 보내요. 번지·이름은 보내지 않아요.
+              올린 서류 파일(등기부·계약서의 PDF나 사진)은 분석을 요청할 때만 OpenAI(미국)로 보내서 내용을 옮겨
+              적어요.
+            </dd>
+          </div>
+          <div className="row">
+            <dt>시세·건축물대장</dt>
+            <dd>
+              등기부 주소 중 동 이름까지만(예: 경기도 용인시 수지구 죽전동) 행정안전부 주소 검색 서비스에 보내요.
+              국토교통부 실거래가 공개 서비스에는 지역 번호와 연월만, 건축물대장 서비스에는 지역 번호와 번지만 보내요.
+              이름과 동·호수는 보내지 않아요.
             </dd>
           </div>
           <div className="row">
@@ -84,13 +76,13 @@ export function PrivacyScreen({ onBack }: { onBack: () => void }) {
       </section>
 
       <section className="doc-section" aria-labelledby="privacy-you">
-        <h2 id="privacy-you">직접 할 수 있는 일</h2>
+        <h2 id="privacy-you">개인정보를 지키는 방법</h2>
         <ul className="dot-list">
           <li>
             계약서 사진은 보내기 전에 주민등록번호·전화번호·서명·계좌번호 같은 곳을 가릴 수 있어요. 흐리게 하는 게
             아니라 검게 칠해서, AI로 보내는 사진에서는 가린 곳이 완전히 지워져요.
           </li>
-          <li>주민등록번호와 전화번호는 결과 화면에서 자동으로 가려요.</li>
+          <li>결과 화면에 나오는 주민등록번호와 전화번호는 저희가 자동으로 가려 드려요.</li>
           <li>
             계약서를 올리지 않고 보증금, 월세, 계약 예정일, 임대인 이름, 선순위 보증금을 직접 입력할 수 있어요.
             직접 입력한 값은 OpenAI로 보내지 않아요. 등기부등본은 꼭 올려야 해요.
@@ -101,12 +93,12 @@ export function PrivacyScreen({ onBack }: { onBack: () => void }) {
           <img
             src={maskExample}
             width={390}
-            height={580}
-            alt="가상 계약서 사진의 임대인·임차인 칸에서 주민등록번호와 전화번호 줄, 서명 자리를 검은 네모 네 개로 가린 화면"
+            height={520}
+            alt="가상 계약서 사진의 임대인·임차인 칸에서 주민등록번호와 전화번호 줄, 서명 자리를 검은 네모 네 개로 가린 모습"
           />
           <figcaption>
-            예시: 가상 계약서 사진에서 주민등록번호·전화번호 두 줄과 서명 두 곳을 '네모로 가리기'로 가린 화면이에요.
-            손가락으로 칠해서 가릴 수도 있어요.
+            예시: 가상 계약서 사진에서 주민등록번호·전화번호 두 줄과 서명 두 곳을 가린 모습이에요. 네모로 가리거나
+            손가락으로 칠해서 가릴 수 있어요.
           </figcaption>
         </figure>
       </section>

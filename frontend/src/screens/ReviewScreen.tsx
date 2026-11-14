@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useState } from 'react'
-import type { CheckRequest, Entry } from '../api/types'
+import type { BuildingInsight, CheckRequest, Entry } from '../api/types'
 import { Excerpt } from '../components/Excerpt'
 import {
   DateField,
@@ -26,12 +26,18 @@ const MARKET_GLOSS = '매매 가격'
 /** S4 내용 확인·수정 */
 export function ReviewScreen({
   request,
+  buildingInsight = null,
+  buildingPending = false,
   checking,
   focusRules,
   onCheck,
   onHome,
 }: {
   request: CheckRequest
+  /** 실제 분석에서 찾은 건축물대장 (사용승인일·세대 수 등). 예시에는 없다 */
+  buildingInsight?: BuildingInsight | null
+  /** 건축물대장을 아직 찾는 중 (오면 이 화면에 채워진다) */
+  buildingPending?: boolean
   checking: boolean
   /** [빠진 내용 채우기]로 왔을 때: 확인하지 못한 규칙 ID. 관련된 첫 빈 칸으로 이동한다 */
   focusRules: string[] | null
@@ -212,18 +218,49 @@ export function ReviewScreen({
         </div>
       </section>
 
-      {building && (
-        <section className="doc-section" aria-labelledby="review-public">
-          <h2 id="review-public">함께 확인한 자료</h2>
+      {(building || buildingInsight || buildingPending) && (
+        <section className="doc-section" aria-labelledby="review-public" aria-busy={buildingPending}>
+          <h2 id="review-public">
+            건축물대장 <span className="heading-note">{request.mode === 'demo' ? '예시' : '국토교통부'}</span>
+          </h2>
           <div className="rows">
-            {building && (
+            {building ? (
               <>
                 <ReadRow label="건축물 용도">{building.main_use ?? '알 수 없음'}</ReadRow>
                 {building.unit_use && <ReadRow label="호실 용도">{building.unit_use}</ReadRow>}
+                {buildingInsight?.use_approval_date && (
+                  <ReadRow label="사용승인일">{formatDate(buildingInsight.use_approval_date)}</ReadRow>
+                )}
+                {(buildingInsight?.households || buildingInsight?.families) && (
+                  <ReadRow label="세대·가구 수">
+                    {[
+                      buildingInsight.households ? `${groupNumber(buildingInsight.households)}세대` : null,
+                      buildingInsight.families ? `${groupNumber(buildingInsight.families)}가구` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </ReadRow>
+                )}
                 <ReadRow label="위반건축물">
-                  {building.is_violating === null ? '알 수 없음' : building.is_violating ? '있음' : '없음'}
+                  {building.is_violating === null ? (
+                    building.source === 'api' ? (
+                      <span className="muted">공개 자료에 없어요. 정부24나 세움터에서 확인하세요.</span>
+                    ) : (
+                      '알 수 없음'
+                    )
+                  ) : building.is_violating ? (
+                    '있음'
+                  ) : (
+                    '없음'
+                  )}
                 </ReadRow>
               </>
+            ) : (
+              <ReadRow label="건축물대장">
+                <span className="muted" role="status">
+                  {buildingPending ? '찾고 있어요…' : (buildingInsight?.message ?? '찾지 못했어요.')}
+                </span>
+              </ReadRow>
             )}
           </div>
         </section>

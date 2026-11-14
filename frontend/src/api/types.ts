@@ -400,6 +400,24 @@ export interface HealthResponse {
 // /api/market: 국토교통부 실거래로 본 시세와 주변 보증금
 // ---------------------------------------------------------------------------
 
+/** /api/building: 건축물대장으로 본 건물·호실 용도. 공개 자료에 위반 표시가 없어 is_violating은 비어 있다 */
+export interface BuildingInsight {
+  status: 'ok' | 'not_found' | 'unavailable'
+  message: string | null
+  /** 검사 입력의 building 칸에 넣을 값 (R10) */
+  building: BuildingRegister | null
+  name: string | null
+  /** 사용승인일 */
+  use_approval_date: ISODate | null
+  /** 세대 수 (공동주택) */
+  households: number | null
+  /** 가구 수 (다가구) */
+  families: number | null
+  /** 호 수 */
+  units: number | null
+  notes: string[]
+}
+
 export type MarketScope = 'same_building' | 'same_dong'
 export type HousingType = '아파트' | '연립다세대' | '오피스텔' | '단독다가구'
 

@@ -6,6 +6,7 @@ import {
   demoCompare,
   demoRecheck,
   extract,
+  buildingLookup,
   extractContract,
   marketLookup,
   recheck,
@@ -13,6 +14,7 @@ import {
 import { ApiError, errorMessage, isFileError } from './api/errors'
 import type { ErrorDocument } from './api/errors'
 import type {
+  BuildingInsight,
   CheckRequest,
   CompareReport,
   CompareRequest,
@@ -80,6 +82,8 @@ const TIMEOUT_MESSAGE = '90초 안에 끝나지 않아 멈췄어요. 잠시 후 
 const CHECK_PROGRESS_DELAY_MS = 400
 /** 서류를 읽은 뒤 실거래 시세를 기다리는 최대 시간. 넘으면 시세 없이 내용 확인으로 넘어간다 */
 const MARKET_WAIT_MS = 15_000
+/** 건축물대장은 기다리지 않고 뒤에서 찾는다 (서버가 느릴 때가 있다). 이 시간이 지나면 포기한다 */
+const BUILDING_WAIT_MS = 15_000
 
 /** ms 안에 끝나지 않거나 실패하면 null */
 function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | null> {
@@ -185,6 +189,11 @@ export default function App() {
   const [report, setReport] = useState<Report | null>(null)
   /** 실제 분석에서 찾은 실거래 (시세·주변 보증금). 예시에는 없다 */
   const [marketInsight, setMarketInsight] = useState<MarketInsight | null>(null)
+  /** 실제 분석에서 찾은 건축물대장 (건물·호실 용도). 예시에는 없다 */
+  const [buildingInsight, setBuildingInsight] = useState<BuildingInsight | null>(null)
+  /** 건축물대장을 뒤에서 찾는 중인지. 늦게 온 결과가 다른 분석에 끼어들지 않게 번호로 구분한다 */
+  const [buildingPending, setBuildingPending] = useState(false)
+  const buildingSeq = useRef(0)
   const [checking, setChecking] = useState(false)
   const [demoLoading, setDemoLoading] = useState<DemoScenario | null>(null)
   const [lastDemo, setLastDemo] = useState<DemoScenario>('C')
@@ -392,11 +401,24 @@ export default function App() {
         today: null,
         mode: 'live',
       }
-      // 실거래 시세: 정해진 시간 안에 못 찾으면 시세 없이 넘어간다 (검사를 막지 않는다)
+      // 건축물대장은 기다리지 않고 뒤에서 찾는다. 실거래 시세는 정해진 시간까지만 기다린다 (검사를 막지 않는다)
+      const seq = ++buildingSeq.current
+      const buildingWork = withTimeout(buildingLookup(base, task.signal), BUILDING_WAIT_MS)
       const insight = await withTimeout(marketLookup(base, task.signal), MARKET_WAIT_MS)
       if (!task.isCurrent()) return
       setMarketInsight(insight)
-      setRequest(insight?.market ? { ...base, market: insight.market } : base)
+      setBuildingInsight(null)
+      setBuildingPending(true)
+      setRequest({ ...base, market: insight?.market ?? null })
+      void buildingWork.then((bld) => {
+        if (seq !== buildingSeq.current) return // 그사이 다른 분석을 시작했거나 처음으로 돌아갔다
+        setBuildingPending(false)
+        setBuildingInsight(bld)
+        if (bld?.building) {
+          const found = bld.building
+          setRequest((r) => (r && r.registry === base.registry ? { ...r, building: found } : r))
+        }
+      })
       setReport(null)
       show({ name: 'review' })
     } catch (err) {
@@ -442,6 +464,9 @@ export default function App() {
     setDemoLoading(scenario)
     setLastDemo(scenario)
     setMarketInsight(null)
+    setBuildingInsight(null)
+    setBuildingPending(false)
+    buildingSeq.current += 1
     try {
       const req = await demo(scenario, task.signal)
       if (!task.isCurrent()) return
@@ -666,6 +691,9 @@ export default function App() {
     setRequest(null)
     setReport(null)
     setMarketInsight(null)
+    setBuildingInsight(null)
+    setBuildingPending(false)
+    buildingSeq.current += 1
     setRecheckCarry(null)
     setRecheckUpload(emptyRecheckUpload())
     setRecheckDraft(null)
@@ -780,6 +808,8 @@ export default function App() {
       screen = request ? (
         <ReviewScreen
           request={request}
+          buildingInsight={request.mode === 'live' ? buildingInsight : null}
+          buildingPending={request.mode === 'live' && buildingPending}
           checking={checking}
           focusRules={reviewFocus}
           onCheck={runCheck}

@@ -139,7 +139,8 @@ h1:focus {
 .site-header-inner {
   max-width: 640px;
   margin: 0 auto;
-  padding: 14px var(--gutter-r) 6px var(--gutter-l);
+  /* 로고는 아래 굵은 선 가까이 둔다 (로고 아래 끝에서 선까지 8px = 여기 0 + 본문 위 8px) */
+  padding: 14px var(--gutter-r) 0 var(--gutter-l);
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -171,7 +172,7 @@ h1:focus {
 .page {
   max-width: 640px;
   margin: 0 auto;
-  padding: 14px var(--gutter-r) 64px var(--gutter-l);
+  padding: 8px var(--gutter-r) 64px var(--gutter-l);
 }
 .page:has(.sticky-actions) {
   padding-bottom: 0;

@@ -227,8 +227,28 @@ export function PhotoMasker({
           사진을 열지 못했어요. 다른 사진을 골라 주세요.
         </p>
       )}
-      {status === 'ready' && (
-        <div className="mask-zoom">
+      <div
+        className="mask-frame"
+        hidden={status !== 'ready'}
+        style={{ aspectRatio: `${w} / ${h}`, width: `min(100%, calc(70vh * ${w} / ${h}))` }}
+      >
+        <div ref={viewportRef} className="mask-viewport" data-zoomed={zoom > 1 ? '' : undefined}>
+          <canvas
+            ref={canvasRef}
+            className="mask-canvas"
+            style={{ width: `${zoom * 100}%` }}
+            role="img"
+            aria-label="계약서 사진. 네모로 끈 곳이 검게 가려져요."
+            aria-describedby={helpId}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={finish}
+            onPointerCancel={finish}
+            onLostPointerCapture={finish}
+          />
+        </div>
+        {/* 사진 오른쪽 위에 얹는 −/+ (사진을 옮겨도 그 자리에 있다) */}
+        <div className="mask-zoom" role="group" aria-label="사진 크기">
           <button
             type="button"
             className="zoom-button"
@@ -250,36 +270,15 @@ export function PhotoMasker({
           >
             +
           </button>
-          {zoom > 1 && (
-            <span className="muted">
-              {window.matchMedia?.('(pointer: coarse)').matches
-                ? '두 손가락으로 끌면 사진이 움직여요'
-                : '스크롤하면 사진이 움직여요'}
-            </span>
-          )}
         </div>
-      )}
-      <div
-        ref={viewportRef}
-        className="mask-viewport"
-        data-zoomed={zoom > 1 ? '' : undefined}
-        hidden={status !== 'ready'}
-        style={{ aspectRatio: `${w} / ${h}`, width: `min(100%, calc(70vh * ${w} / ${h}))` }}
-      >
-        <canvas
-          ref={canvasRef}
-          className="mask-canvas"
-          style={{ width: `${zoom * 100}%` }}
-          role="img"
-          aria-label="계약서 사진. 네모로 끈 곳이 검게 가려져요."
-          aria-describedby={helpId}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={finish}
-          onPointerCancel={finish}
-          onLostPointerCapture={finish}
-        />
       </div>
+      {status === 'ready' && zoom > 1 && (
+        <p className="muted">
+          {window.matchMedia?.('(pointer: coarse)').matches
+            ? '두 손가락으로 끌면 사진이 움직여요.'
+            : '스크롤하면 사진이 움직여요.'}
+        </p>
+      )}
       <div className="mask-actions">
         <button
           type="button"

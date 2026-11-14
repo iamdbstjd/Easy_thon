@@ -1247,46 +1247,63 @@ details:not([open]) > summary .when-open {
 .mask-tool > * + * {
   margin-top: 6px;
 }
-.mask-zoom {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-}
-.zoom-button {
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 1px solid var(--field-border);
-  border-radius: var(--radius);
-  background: var(--bg);
-  color: var(--ink);
-  font: inherit;
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
-}
-.zoom-button:disabled {
-  color: var(--rule);
-  border-color: var(--rule);
-  cursor: default;
-}
-.zoom-level {
-  min-width: 3.5em;
-  text-align: center;
-}
 /* 사진 비율 그대로 칸 폭과 화면 높이(70%) 안에 맞춘 틀. 키우면 틀 안에서 움직인다 (선은 outline이라 크기에 안 들어간다) */
-.mask-viewport {
+.mask-frame {
+  position: relative;
   max-width: 100%;
-  overflow: hidden;
   outline: 1px solid var(--rule);
+}
+.mask-frame[hidden] {
+  display: none;
+}
+.mask-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
 }
 .mask-viewport[data-zoomed] {
   overflow: auto;
   overscroll-behavior: contain;
 }
-.mask-viewport[hidden] {
-  display: none;
+/* −/+ : 사진 오른쪽 위에 얹은 둥근 묶음. 사진 위에서도 보이게 흰 바탕과 옅은 그림자를 둔다 */
+.mask-zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 4px rgba(17, 17, 17, 0.14);
+}
+.zoom-button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.zoom-button:hover:not(:disabled) {
+  background: rgba(17, 17, 17, 0.06);
+}
+.zoom-button:disabled {
+  color: #b8bcc4;
+  cursor: default;
+}
+.zoom-level {
+  min-width: 3em;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: center;
+}
 }
 /* 끄는 동안 화면이 움직이지 않게 한다 */
 .mask-canvas {

@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { checklistIcs } from '../api/client'
 import { errorMessage } from '../api/errors'
@@ -26,8 +26,8 @@ import { HELP_LINKS, OFF_REGISTRY_ROWS, SPECIAL_TERMS_NOTE, quickLinks } from '.
 import { formatArea, formatDate, formatPeriod, formatWon, isoToLocalInput } from '../lib/format'
 import { keepTogether } from '../lib/keepTogether'
 import { maskPersonal } from '../lib/mask'
-import { buildShareText, mailtoHref, shareText } from '../lib/share'
-import type { ShareResult } from '../lib/share'
+import { reportPdf } from '../lib/reportPdf'
+import { buildShareText, canShareFiles, downloadFile, mailtoHref, shareFile, shareText } from '../lib/share'
 import { useScreenFocus } from '../lib/useScreenFocus'
 
 /** S5 리포트: 보증금 위험 검토서 */
@@ -71,14 +71,44 @@ export function ReportScreen({
   const target = request ? reviewTarget(request, report) : null
   // 지도 검색에는 동·호수 없이 건물 주소만 쓴다
   const mapAddress = request ? (request.registry.address_road ?? request.registry.address_jibun ?? null) : null
-  const [shareState, setShareState] = useState<ShareResult | null>(null)
   const shareBody = () => {
     const host = window.location.hostname
     const origin = host === 'localhost' || host === '127.0.0.1' ? null : window.location.origin
     return buildShareText(report, target, marketInsight, origin)
   }
-  async function onShare() {
-    setShareState(await shareText(shareBody()))
+  // 같은 검토서는 PDF를 한 번만 만든다 (메모리에만 둔다)
+  const pdfCache = useRef<{ key: unknown[]; file: File } | null>(null)
+  /** 검토서 전체를 PDF 파일로 (lib/reportPdf.ts) */
+  async function makePdf(): Promise<File> {
+    const key = [report, request, marketInsight]
+    const cached = pdfCache.current
+    if (cached && cached.key.every((v, i) => v === key[i])) return cached.file
+    const source = document.querySelector<HTMLElement>('main.page')
+    if (!source) throw new Error('report not on screen')
+    const file = await reportPdf(source, {
+      fileName: `집키미_검토서_${report.today}.pdf`,
+      title: `집키미 보증금 위험 검토서 ${report.today}`,
+      footer: `집키미 · 보증금 위험 검토서 · ${formatDate(report.today)}`,
+    })
+    pdfCache.current = { key, file }
+    return file
+  }
+  /** 검토서 전체를 인쇄 창으로 보낸다 (컴퓨터의 인쇄하기). 요청서 [인쇄]는 요청서만 뽑는다 */
+  function onPrint() {
+    const body = document.body
+    const title = document.title
+    // 접혀 있는 근거 원문(<details>)은 인쇄 때 펼쳤다가 끝나면 되돌린다
+    const opened = [...document.querySelectorAll<HTMLDetailsElement>('main details:not([open])')]
+    opened.forEach((d) => (d.open = true))
+    body.classList.add('print-report')
+    document.title = `집키미_검토서_${report.today}` // PDF 파일 이름이 된다
+    const done = () => {
+      body.classList.remove('print-report')
+      document.title = title
+      opened.forEach((d) => (d.open = false))
+    }
+    window.addEventListener('afterprint', done, { once: true })
+    window.print()
   }
   const icsAddress =
     request?.contract?.address ?? request?.registry.address_road ?? request?.registry.address_jibun ?? null
@@ -264,21 +294,7 @@ export function ReportScreen({
               <p className={`verdict verdict-${overall.level}`}>{overall.title}</p>
               {overall.message && <p>{overall.message}</p>}
               <CountsLine counts={counts} />
-              <p className="share-line">
-                <button type="button" className="link" onClick={onShare}>
-                  결과 공유하기
-                </button>
-                <a className="link" href={mailtoHref(shareBody())}>
-                  메일로 보내기
-                </a>
-                <span className="muted" role="status">
-                  {shareState === 'copied'
-                    ? '복사했어요. 카톡이나 문자에 붙여 넣으세요.'
-                    : shareState === 'failed'
-                      ? '복사하지 못했어요.'
-                      : ''}
-                </span>
-              </p>
+              <ShareActions getText={shareBody} makePdf={makePdf} onPrint={onPrint} />
               {missingOnly && (
                 <p>
                   <button
@@ -292,7 +308,7 @@ export function ReportScreen({
               )}
             </dd>
           </div>
-          <div className="row">
+          <div className="row quick-row">
             <dt>바로가기</dt>
             <dd className="sep-list">
               {quickLinks(mapAddress).map((link) => (
@@ -332,6 +348,8 @@ export function ReportScreen({
         ))}
       </ul>
 
+      <ShareActions getText={shareBody} makePdf={makePdf} onPrint={onPrint} />
+
       <div className="actions">
         <button type="button" className="btn-primary" onClick={onEdit}>
           내용 고쳐서 다시 검사
@@ -341,6 +359,81 @@ export function ReportScreen({
         </button>
       </div>
     </>
+  )
+}
+
+/**
+ * 검토서 보내기 한 줄 (검토서 위·아래에 둔다). 알림은 누른 줄에만 뜬다.
+ * 휴대폰: PDF로 공유하기(공유창으로 카톡·메일) · 요약 글 공유하기
+ * 컴퓨터: PDF 내려받기 · 요약 글 공유하기 · 메일로 보내기 · 인쇄하기
+ */
+function ShareActions({
+  getText,
+  makePdf,
+  onPrint,
+}: {
+  getText: () => string
+  makePdf: () => Promise<File>
+  onPrint: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+  const sendsFiles = canShareFiles()
+
+  async function onPdf() {
+    setBusy(true)
+    setNote('PDF를 만들고 있어요…')
+    let file: File
+    try {
+      file = await makePdf()
+    } catch {
+      setNote('PDF를 만들지 못했어요. 잠시 뒤 다시 눌러 보세요.')
+      return
+    } finally {
+      setBusy(false)
+    }
+    const result = sendsFiles ? await shareFile(file) : 'failed'
+    if (result === 'failed') {
+      downloadFile(file)
+      setNote('PDF를 내려받았어요. 카톡이나 메일에 첨부해 보내세요.')
+    } else {
+      setNote(result === 'blocked' ? 'PDF를 만들었어요. 한 번 더 누르면 공유창이 열려요.' : '')
+    }
+  }
+
+  async function onText() {
+    const result = await shareText(getText())
+    setNote(
+      result === 'copied'
+        ? '요약 글을 복사했어요. 카톡이나 문자에 붙여 넣으세요.'
+        : result === 'failed'
+          ? '복사하지 못했어요.'
+          : '',
+    )
+  }
+
+  return (
+    <p className="share-line">
+      <button type="button" className="link" disabled={busy} onClick={onPdf}>
+        {sendsFiles ? 'PDF로 공유하기' : 'PDF 내려받기'}
+      </button>
+      <button type="button" className="link" onClick={onText}>
+        요약 글 공유하기
+      </button>
+      {!sendsFiles && (
+        <>
+          <a className="link" href={mailtoHref(getText())}>
+            메일로 보내기
+          </a>
+          <button type="button" className="link" onClick={onPrint}>
+            인쇄하기
+          </button>
+        </>
+      )}
+      <span className="muted" role="status">
+        {note}
+      </span>
+    </p>
   )
 }
 

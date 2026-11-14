@@ -1042,8 +1042,9 @@ details:not([open]) > summary .when-open {
     font-size: 10.5pt;
     line-height: 1.6;
   }
-  body:has(.amendment) .site-header,
-  .page:has(.amendment) > :not(.amendment) {
+  /* 요청서 [인쇄]: 요청서만 뽑는다. 검토서 [PDF로 저장](body.print-report)일 때는 전체를 뽑는다 */
+  body:not(.print-report):has(.amendment) .site-header,
+  body:not(.print-report) .page:has(.amendment) > :not(.amendment) {
     display: none !important;
   }
   .page:has(.amendment) {
@@ -1369,7 +1370,7 @@ details:not([open]) > summary .when-open {
   font-size: 14px;
 }
 
-/* 검토서: 결과 공유하기 · 메일로 보내기 */
+/* 검토서 보내기 줄: PDF로 공유하기 · 요약 글 공유하기 (컴퓨터는 메일로 보내기 · 인쇄하기도) */
 .share-line {
   display: flex;
   flex-wrap: wrap;
@@ -1377,4 +1378,76 @@ details:not([open]) > summary .when-open {
   gap: 4px 16px;
   margin-top: 8px;
 }
+/* 맨 아래 줄: 위쪽 도움말과 띄운다 */
+.help-list + .share-line {
+  margin-top: 24px;
+}
 
+/* 검토서 전체 인쇄 (ReportScreen의 인쇄하기 → body.print-report) */
+@media print {
+  body.print-report {
+    background: #ffffff;
+    font-size: 10pt;
+  }
+  /* 로고가 아래 굵은 선에 붙지 않게 띄운다 */
+  body.print-report .site-header-inner {
+    max-width: none;
+    padding: 0 0 5mm;
+  }
+  body.print-report .site-logo {
+    height: 10mm;
+  }
+  /* 접힌 목록(확인 못 함·해당 없음·참고)도 펼쳐서 뽑는다 */
+  body.print-report .fold-body[hidden] {
+    display: block !important;
+  }
+  body.print-report .fold-toggle,
+  body.print-report .reveal-toggle,
+  body.print-report main button.link,
+  body.print-report .share-line,
+  body.print-report .actions,
+  body.print-report .head-links,
+  body.print-report .quick-row,
+  body.print-report .print-only {
+    display: none !important;
+  }
+  body.print-report .amendment h2 .no-print {
+    display: inline !important;
+  }
+  body.print-report .finding,
+  body.print-report tr {
+    break-inside: avoid;
+  }
+}
+
+/* 검토서 PDF 파일 (lib/reportPdf.ts): 화면 밖 iframe(폭 760px)에 검토서를 복사해 그림으로 뜬다.
+   인쇄와 같이 접힌 곳은 펼치고, 누르는 것(버튼·바로가기)은 뺀다 */
+/* 캔버스는 고정폭 숫자를 못 그려서, 화면 배치도 보통 숫자로 맞춘다 (안 그러면 "2026 년"처럼 틈이 생긴다) */
+.pdf-capture,
+.pdf-capture * {
+  font-variant-numeric: normal !important;
+}
+.pdf-capture .page {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+.pdf-capture .pdf-logo {
+  display: block;
+  width: auto;
+  height: 36px;
+  margin-bottom: 18px;
+}
+.pdf-capture .fold-body[hidden] {
+  display: block !important;
+}
+.pdf-capture .fold-toggle,
+.pdf-capture .reveal-toggle,
+.pdf-capture main button.link,
+.pdf-capture main p:has(> button.link),
+.pdf-capture .share-line,
+.pdf-capture .actions,
+.pdf-capture .head-links,
+.pdf-capture .quick-row {
+  display: none !important;
+}

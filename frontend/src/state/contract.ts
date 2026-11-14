@@ -23,6 +23,8 @@ export interface PagePick {
   marks: MaskMark[]
   auto: 'pending' | 'done'
   autoFound: number
+  /** 자동 가리기를 하지 못했다 (글자 읽기 파일을 못 받는 등) */
+  autoFailed: boolean
   /** PDF 글자 층에서 찾은 번호. 있으면 글자 읽기(OCR) 대신 쓴다. 글자 층이 없는 쪽은 null */
   textMarks: MaskMark[] | null
 }
@@ -41,6 +43,8 @@ export interface FilePick {
   auto: 'off' | 'pending' | 'done'
   /** 자동으로 찾아 가린 곳의 수 (사용자가 지워도 그대로) */
   autoFound: number
+  /** 자동 가리기를 하지 못했다 (사진이면 그 사진, PDF면 한 쪽이라도) */
+  autoFailed: boolean
   /**
    * 계약서 PDF를 쪽마다 그림으로 바꾼 것. 바꾸는 중이거나(auto 'pending') 바꾸지 못했거나 PDF가 아니면 null.
    * PDF는 쪽을 다 바꾸고 쪽마다 자동 가리기까지 끝나야 auto가 'done'이 된다.
@@ -61,6 +65,7 @@ export function newPick(file: File, kind: FilePick['kind'], maskable: boolean): 
     marks: [],
     auto: maskable ? 'pending' : 'off',
     autoFound: 0,
+    autoFailed: false,
     pages: null,
   }
 }

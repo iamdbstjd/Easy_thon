@@ -79,8 +79,12 @@ function fixLookalikes(line: string): string {
 /**
  * 계약서 사진에서 가릴 곳을 찾아 네모(사진 픽셀 좌표, decodeImage와 같은 크기)로 돌려준다.
  * onProgress는 0–1 (처음에는 OCR 파일 받기, 그다음 글자 읽기).
+ * 글자 읽기를 못 했으면(파일을 못 받았거나 시간이 넘었거나) null: '번호가 없음'과 구분해서 직접 가리라고 알린다.
  */
-export async function findPersonalMarks(photo: File, onProgress?: (ratio: number) => void): Promise<MaskMark[]> {
+export async function findPersonalMarks(
+  photo: File,
+  onProgress?: (ratio: number) => void,
+): Promise<MaskMark[] | null> {
   let done = 0
   const report = (ratio: number) => {
     done = Math.max(done, Math.min(1, ratio))
@@ -90,7 +94,7 @@ export async function findPersonalMarks(photo: File, onProgress?: (ratio: number
     return await withTimeout(run(photo, report), TIMEOUT_MS)
   } catch {
     resetWorker()
-    return []
+    return null
   } finally {
     report(1)
   }

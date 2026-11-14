@@ -28,6 +28,7 @@ export function PhotoMasker({
   marks,
   auto,
   autoFound,
+  autoFailed = false,
   what = '계약서 사진',
   sendNote = '가린 사진만 보내요.',
   onChange,
@@ -40,6 +41,8 @@ export function PhotoMasker({
   auto: 'off' | 'pending' | 'done'
   /** 자동으로 찾아 가린 곳의 수 (사용자가 지워도 그대로) */
   autoFound: number
+  /** 자동 가리기를 하지 못했다 (찾지 못한 것과 다르다) */
+  autoFailed?: boolean
   /** 화면 낭독기용 그림 이름 ("계약서 사진", "계약서 2쪽") */
   what?: string
   /** 안내 끝에 붙이는 보내는 방법 */
@@ -220,7 +223,9 @@ export function PhotoMasker({
       <p id={helpId}>
         {auto === 'pending'
           ? '주민등록번호·전화번호·계좌번호를 찾아 자동으로 가리고 있어요…'
-          : auto === 'done' && autoCount > 0
+          : auto === 'done' && autoFailed && autoCount === 0
+            ? '자동 가리기를 하지 못했어요. 화면을 새로고침하거나, 주민등록번호·전화번호·서명·계좌번호처럼 보내고 싶지 않은 곳을 네모로 직접 가려 주세요.'
+            : auto === 'done' && autoCount > 0
             ? `주민등록번호·전화번호·계좌번호로 보이는 곳 ${autoCount}군데를 자동으로 가렸어요. 빠진 곳이 없는지 확인하고, 이름·서명·도장처럼 더 가릴 곳은 네모로 끌어 가리세요.`
             : auto === 'done' && autoFound === 0
               ? '자동으로 가릴 번호를 찾지 못했어요. 주민등록번호·전화번호·서명·계좌번호처럼 보내고 싶지 않은 곳을 네모로 끌어 가리세요.'

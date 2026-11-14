@@ -28,22 +28,30 @@ async function runAutoMask(picks: FilePick[], onChange: PicksUpdate) {
   }
 }
 
-async function findSafely(image: File): Promise<MaskMark[]> {
+/** 찾은 곳. 글자 읽기를 못 했으면 null */
+async function findSafely(image: File): Promise<MaskMark[] | null> {
   try {
     return await findPersonalMarks(image)
   } catch {
-    return []
+    return null
   }
 }
 
 const autoMarks = (found: MaskMark[]): MaskMark[] => found.map((m) => ({ ...m, auto: true }))
 
 async function autoMaskPhoto(pick: FilePick, onChange: PicksUpdate) {
-  const found = pick.source ? await findSafely(pick.source) : []
+  const result = pick.source ? await findSafely(pick.source) : []
+  const found = result ?? []
   onChange((current) =>
     current.map((p) =>
       p.id === pick.id && p.auto === 'pending'
-        ? { ...p, auto: 'done', autoFound: found.length, marks: [...autoMarks(found), ...p.marks] }
+        ? {
+            ...p,
+            auto: 'done',
+            autoFound: found.length,
+            autoFailed: result === null,
+            marks: [...autoMarks(found), ...p.marks],
+          }
         : p,
     ),
   )
@@ -70,24 +78,34 @@ async function autoMaskPdf(pick: FilePick, onChange: PicksUpdate) {
     marks: [],
     auto: 'pending',
     autoFound: 0,
+    autoFailed: false,
     textMarks: page.textMarks,
   }))
   update((p) => ({ ...p, pages: pagePicks }))
   let total = 0
+  let failed = false
   for (const page of pagePicks) {
-    const found = page.textMarks ?? (page.source ? await findSafely(page.source) : [])
+    const result = page.textMarks ?? (page.source ? await findSafely(page.source) : [])
+    const found = result ?? []
+    failed ||= result === null
     total += found.length
     update((p) => ({
       ...p,
       pages:
         p.pages?.map((pg) =>
           pg.id === page.id
-            ? { ...pg, auto: 'done', autoFound: found.length, marks: [...autoMarks(found), ...pg.marks] }
+            ? {
+                ...pg,
+                auto: 'done',
+                autoFound: found.length,
+                autoFailed: result === null,
+                marks: [...autoMarks(found), ...pg.marks],
+              }
             : pg,
         ) ?? null,
     }))
   }
-  update((p) => ({ ...p, auto: 'done', autoFound: total }))
+  update((p) => ({ ...p, auto: 'done', autoFound: total, autoFailed: failed }))
 }
 
 /** 아직 보내지 않아 가릴 수 있는 파일인가 (가리기 전 그림을 들고 있다) */
@@ -291,6 +309,7 @@ export function DocFilesField({
                       marks={pick.marks}
                       auto={pick.auto}
                       autoFound={pick.autoFound}
+                      autoFailed={pick.autoFailed}
                       onChange={(marks) => setMarks(pick, marks)}
                     />
                   )}
@@ -302,7 +321,10 @@ export function DocFilesField({
                     />
                   )}
                   {maskable && pick.kind === 'pdf' && pick.auto === 'done' && pick.pages === null && (
-                    <p className="form-hint">이 PDF는 쪽을 그림으로 바꾸지 못해서 가리지 않고 그대로 보내요.</p>
+                    <p className="form-hint">
+                      이 PDF는 쪽을 그림으로 바꾸지 못해서 가리지 않고 그대로 보내요. 화면을 새로고침한 뒤 다시
+                      골라 보거나, 가릴 곳이 있으면 그 쪽을 사진으로 찍어 올려 주세요.
+                    </p>
                   )}
                   {maskable && wasSent(pick) && (
                     <p className="form-hint">
@@ -406,6 +428,7 @@ function PdfPagesMasker({
           marks={page.marks}
           auto={page.auto}
           autoFound={page.autoFound}
+          autoFailed={page.autoFailed}
           what={`계약서 ${at + 1}쪽`}
           sendNote="가린 곳이 있으면 글자를 지운 그림 PDF로 보내요."
           onChange={(marks) => onPageMarks(page.id, marks)}

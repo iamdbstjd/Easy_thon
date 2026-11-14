@@ -39,6 +39,7 @@ import { RecheckReportScreen } from './screens/RecheckReportScreen'
 import { RecheckConfirmScreen, RecheckUploadScreen } from './screens/RecheckScreen'
 import { ReportScreen } from './screens/ReportScreen'
 import { ReviewScreen } from './screens/ReviewScreen'
+import type { OriginalFiles } from './screens/ReviewScreen'
 import { StartScreen } from './screens/StartScreen'
 import { UploadScreen } from './screens/UploadScreen'
 import { filesToSend, sentPicks } from './state/contract'
@@ -186,6 +187,8 @@ export default function App() {
   const [view, setView] = useState<View>(START)
   const [upload, setUpload] = useState<UploadDraft>(emptyUploadDraft)
   const [request, setRequest] = useState<CheckRequest | null>(null)
+  // 지금 검사 입력을 읽어 온 서류 파일 (S4 '원문 보기'). 계약서는 가려서 보낸 그대로. 메모리에만 둔다
+  const [requestFiles, setRequestFiles] = useState<OriginalFiles | null>(null)
   const [report, setReport] = useState<Report | null>(null)
   /** 실제 분석에서 찾은 실거래 (시세·주변 보증금). 예시에는 없다 */
   const [marketInsight, setMarketInsight] = useState<MarketInsight | null>(null)
@@ -410,6 +413,7 @@ export default function App() {
       setBuildingInsight(null)
       setBuildingPending(true)
       setRequest({ ...base, market: insight?.market ?? null })
+      setRequestFiles({ registry: registry.map((p) => p.file), contract: contractFiles })
       void buildingWork.then((bld) => {
         if (seq !== buildingSeq.current) return // 그사이 다른 분석을 시작했거나 처음으로 돌아갔다
         setBuildingPending(false)
@@ -471,6 +475,7 @@ export default function App() {
       const req = await demo(scenario, task.signal)
       if (!task.isCurrent()) return
       setRequest(req)
+      setRequestFiles(null)
       setReport(null)
       show({ name: 'review' })
     } catch (err) {
@@ -673,6 +678,10 @@ export default function App() {
     if (!compareAfter) return
     stopRunning()
     setRequest(compareAfter.request)
+    // 수정 후 검사는 새로 올린 계약서를 읽었다 (등기부는 그대로)
+    if (compareContract.length > 0) {
+      setRequestFiles((f) => f && { ...f, contract: compareContract.map((p) => p.file) })
+    }
     setReport(compareAfter.report)
     setReviewFocus(null)
     show({ name: 'report' })
@@ -689,6 +698,7 @@ export default function App() {
     setReviewFocus(null)
     setUpload(emptyUploadDraft())
     setRequest(null)
+    setRequestFiles(null)
     setReport(null)
     setMarketInsight(null)
     setBuildingInsight(null)
@@ -808,6 +818,7 @@ export default function App() {
       screen = request ? (
         <ReviewScreen
           request={request}
+          originals={request.mode === 'live' ? requestFiles : null}
           buildingInsight={request.mode === 'live' ? buildingInsight : null}
           buildingPending={request.mode === 'live' && buildingPending}
           checking={checking}

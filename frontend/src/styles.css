@@ -1547,3 +1547,25 @@ details:not([open]) > summary .when-open {
   color: var(--text);
   font-weight: 700;
 }
+
+/* S4 원문 보기: 올린 서류를 쪽마다 (1px 선). 제목 바로 아래에 펼친다 */
+.original-pages {
+  margin: 8px 0 16px;
+}
+.original-pages > * + * {
+  margin-top: 12px;
+}
+.original-page {
+  margin: 0;
+}
+.original-page figcaption {
+  margin-bottom: 4px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+.original-page img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--rule);
+}

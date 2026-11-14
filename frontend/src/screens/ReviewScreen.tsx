@@ -11,9 +11,11 @@ import {
   TextField,
 } from '../components/fields'
 import { MARKET_METHOD_LABEL } from '../content/labels'
+import { isPdfFile } from '../lib/files'
 import { formatArea, formatDate, formatPeriod, formatWon, groupNumber } from '../lib/format'
 import { holderList } from '../lib/holders'
 import { maskPersonal } from '../lib/mask'
+import { pdfPages } from '../lib/pdfPages'
 import { useScreenFocus } from '../lib/useScreenFocus'
 import { formFromRequest, missingField, requestFromForm } from '../state/review'
 import type { ReviewForm } from '../state/review'
@@ -25,8 +27,15 @@ const PRIOR_GLOSS = '먼저 들어온 세입자 보증금'
 const MARKET_GLOSS = '매매 가격'
 
 /** S4 내용 확인·수정 */
+/** 검사 입력을 읽어 온 서류 파일 ('원문 보기'). 계약서는 가려서 보낸 그대로 */
+export interface OriginalFiles {
+  registry: File[]
+  contract: File[]
+}
+
 export function ReviewScreen({
   request,
+  originals = null,
   buildingInsight = null,
   buildingPending = false,
   checking,
@@ -35,6 +44,8 @@ export function ReviewScreen({
   onHome,
 }: {
   request: CheckRequest
+  /** 실제로 올린 서류 (예시에는 없다). 있으면 등기부·계약서 제목 옆에 [원문 보기]를 둔다 */
+  originals?: OriginalFiles | null
   /** 실제 분석에서 찾은 건축물대장 (사용승인일·세대 수 등). 예시에는 없다 */
   buildingInsight?: BuildingInsight | null
   /** 건축물대장을 아직 찾는 중 (오면 이 화면에 채워진다) */
@@ -96,7 +107,7 @@ export function ReviewScreen({
       </div>
 
       <section className="doc-section" aria-labelledby="review-registry">
-        <h2 id="review-registry">등기부</h2>
+        <OriginalHead id="review-registry" title="등기부" files={originals?.registry ?? []} />
         <div className="rows">
           <ReadRow label="종류">{registry.registry_type ?? '읽지 못함'}</ReadRow>
           {registry.building_name && <ReadRow label="건물 명칭">{maskPersonal(registry.building_name)}</ReadRow>}
@@ -143,7 +154,12 @@ export function ReviewScreen({
       {contract ? (
         <>
           <section className="doc-section" aria-labelledby="review-contract">
-            <h2 id="review-contract">계약서</h2>
+            <OriginalHead
+              id="review-contract"
+              title="계약서"
+              files={originals?.contract ?? []}
+              note="가린 곳은 가린 채, AI에 보낸 그대로 보여 줘요."
+            />
             <div className="rows">
               {contract.lease_type && <ReadRow label="계약 종류">{contract.lease_type}</ReadRow>}
               {contract.agent_name && <ReadRow label="대리인">{maskPersonal(contract.agent_name)}</ReadRow>}
@@ -373,5 +389,80 @@ function EntryTable({ entries, caption }: { entries: Entry[]; caption: string })
         })}
       </tbody>
     </table>
+  )
+}
+
+/** 절 제목과 오른쪽 [원문 보기]. 누르면 제목 아래에 올린 서류를 쪽마다 보여 준다 */
+function OriginalHead({ id, title, files, note }: { id: string; title: string; files: File[]; note?: string }) {
+  const [open, setOpen] = useState(false)
+  const panelId = useId()
+  return (
+    <>
+      <div className="section-head">
+        <h2 id={id}>{title}</h2>
+        {files.length > 0 && (
+          <button
+            type="button"
+            className="link"
+            aria-expanded={open}
+            aria-controls={panelId}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? '원문 닫기' : '원문 보기'}
+          </button>
+        )}
+      </div>
+      {open && <OriginalPages id={panelId} title={title} files={files} note={note} />}
+    </>
+  )
+}
+
+/** 올린 서류를 쪽마다 그림으로 보여 준다. PDF는 이 기기 안에서 쪽 그림으로 바꾸고, 닫으면 버린다 */
+function OriginalPages({ id, title, files, note }: { id: string; title: string; files: File[]; note?: string }) {
+  const [pages, setPages] = useState<string[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    const urls: string[] = []
+    const add = (blob: Blob) => {
+      const url = URL.createObjectURL(blob)
+      if (cancelled) URL.revokeObjectURL(url)
+      else urls.push(url)
+    }
+    const run = async () => {
+      for (const file of files) {
+        if (isPdfFile(file)) for (const page of await pdfPages(file)) add(page.image)
+        else add(file)
+      }
+      if (!cancelled) setPages([...urls])
+    }
+    run().catch(() => {
+      if (!cancelled) setFailed(true)
+    })
+    return () => {
+      cancelled = true
+      urls.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [files])
+  return (
+    <div id={id} className="original-pages">
+      {note && <p className="muted">{note}</p>}
+      {failed ? (
+        <p className="form-error">원문을 열지 못했어요.</p>
+      ) : !pages ? (
+        <p className="muted" role="status">
+          원문을 불러오는 중…
+        </p>
+      ) : (
+        pages.map((url, i) => (
+          <figure key={url} className="original-page">
+            <figcaption>
+              {title} {i + 1}쪽
+            </figcaption>
+            <img src={url} alt={`${title} ${i + 1}쪽 원문`} />
+          </figure>
+        ))
+      )}
+    </div>
   )
 }

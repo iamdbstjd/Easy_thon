@@ -64,3 +64,21 @@ export const HELP_LINKS: {
 ]
 
 export const IROS_URL = 'https://www.iros.go.kr'
+/** 국토교통부 실거래가 공개시스템 */
+export const RT_URL = 'https://rt.molit.go.kr'
+/** 세움터 (건축물대장 열람·발급) */
+export const EAIS_URL = 'https://www.eais.go.kr'
+
+/** 검토서 위쪽 '바로가기'. 지도는 주소로 검색한다 (누르면 그 지도 서비스로 주소가 넘어간다) */
+export function quickLinks(address: string | null): { label: string; href: string }[] {
+  const links: { label: string; href: string }[] = []
+  if (address) {
+    const q = encodeURIComponent(address)
+    links.push({ label: '네이버 지도', href: `https://map.naver.com/p/search/${q}` })
+    links.push({ label: '카카오맵', href: `https://map.kakao.com/?q=${q}` })
+  }
+  links.push({ label: '실거래가 공개시스템', href: RT_URL })
+  links.push({ label: '세움터(건축물대장)', href: EAIS_URL })
+  links.push({ label: '인터넷등기소', href: IROS_URL })
+  return links
+}

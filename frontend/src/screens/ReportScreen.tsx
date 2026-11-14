@@ -22,10 +22,12 @@ import { Excerpt } from '../components/Excerpt'
 import { Grade } from '../components/Grade'
 import { ResultText } from '../components/ResultText'
 import { CHECKLIST_WHEN_ORDER, COUNT_LABEL, DOC_LABEL, LEVEL_LABEL, ruleNumber } from '../content/labels'
-import { HELP_LINKS, OFF_REGISTRY_ROWS, SPECIAL_TERMS_NOTE } from '../content/static'
+import { HELP_LINKS, OFF_REGISTRY_ROWS, SPECIAL_TERMS_NOTE, quickLinks } from '../content/static'
 import { formatArea, formatDate, formatPeriod, formatWon, isoToLocalInput } from '../lib/format'
 import { keepTogether } from '../lib/keepTogether'
 import { maskPersonal } from '../lib/mask'
+import { buildShareText, mailtoHref, shareText } from '../lib/share'
+import type { ShareResult } from '../lib/share'
 import { useScreenFocus } from '../lib/useScreenFocus'
 
 /** S5 리포트: 보증금 위험 검토서 */
@@ -67,6 +69,17 @@ export function ReportScreen({
   const missingOnly = flagged.length === 0 && unknown.length > 0
 
   const target = request ? reviewTarget(request, report) : null
+  // 지도 검색에는 동·호수 없이 건물 주소만 쓴다
+  const mapAddress = request ? (request.registry.address_road ?? request.registry.address_jibun ?? null) : null
+  const [shareState, setShareState] = useState<ShareResult | null>(null)
+  const shareBody = () => {
+    const host = window.location.hostname
+    const origin = host === 'localhost' || host === '127.0.0.1' ? null : window.location.origin
+    return buildShareText(report, target, marketInsight, origin)
+  }
+  async function onShare() {
+    setShareState(await shareText(shareBody()))
+  }
   const icsAddress =
     request?.contract?.address ?? request?.registry.address_road ?? request?.registry.address_jibun ?? null
 
@@ -251,6 +264,21 @@ export function ReportScreen({
               <p className={`verdict verdict-${overall.level}`}>{overall.title}</p>
               {overall.message && <p>{overall.message}</p>}
               <CountsLine counts={counts} />
+              <p className="share-line">
+                <button type="button" className="link" onClick={onShare}>
+                  결과 공유하기
+                </button>
+                <a className="link" href={mailtoHref(shareBody())}>
+                  메일로 보내기
+                </a>
+                <span className="muted" role="status">
+                  {shareState === 'copied'
+                    ? '복사했어요. 카톡이나 문자에 붙여 넣으세요.'
+                    : shareState === 'failed'
+                      ? '복사하지 못했어요.'
+                      : ''}
+                </span>
+              </p>
               {missingOnly && (
                 <p>
                   <button
@@ -262,6 +290,16 @@ export function ReportScreen({
                   </button>
                 </p>
               )}
+            </dd>
+          </div>
+          <div className="row">
+            <dt>바로가기</dt>
+            <dd className="sep-list">
+              {quickLinks(mapAddress).map((link) => (
+                <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer">
+                  {link.label}
+                </a>
+              ))}
             </dd>
           </div>
         </dl>

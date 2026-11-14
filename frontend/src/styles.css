@@ -1354,3 +1354,12 @@ details:not([open]) > summary .when-open {
   font-size: 14px;
 }
 
+/* 검토서: 결과 공유하기 · 메일로 보내기 */
+.share-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  margin-top: 8px;
+}
+

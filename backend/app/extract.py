@@ -3,7 +3,8 @@
 - AI는 읽기만 한다. 위험 판단은 app/rules가 한다.
 - 어느 AI를 쓸지는 ai_provider()가 정한다 (AI_PROVIDER, 없으면 키가 있는 쪽. 둘 다 있으면 OpenAI).
   AI_PROVIDER는 openai·gpt, anthropic·claude를 받는다. 모르는 값이면 경고를 남기고 키로 고른다.
-- 등기부와 계약서는 병렬로 따로 호출한다.
+- 등기부와 계약서는 병렬로 따로 호출한다. 한 서류가 여러 파일(쪽마다 찍은 사진, 나눠 저장한 PDF)이면
+  한 호출에 올린 순서대로 모두 넣고, 하나로 이어서 옮기게 한다.
 - 두 문서를 합쳐 마감 시간(EXTRACT_DEADLINE_SECONDS, 기본 85초) 안에 끝내거나 AI_FAILED로 실패한다.
   화면은 90초에 포기하므로 그보다 짧다. 마감은 요청이 들어온 때부터 잰다 (대기열·업로드 시간 포함).
   SDK 자동 재시도는 끄고, 일시적인 오류(연결·timeout, 5xx, 429, 빈 응답 본문)는 마감 안에서
@@ -27,7 +28,7 @@ import re
 import os
 import time
 import typing
-from typing import Any, Awaitable, Callable, NamedTuple, TypeVar
+from typing import Any, Awaitable, Callable, NamedTuple, Sequence, TypeVar, Union
 
 import anthropic
 import openai
@@ -42,6 +43,7 @@ from app.prompts import (
     REGISTRY_SCHEMA,
     REGISTRY_SYSTEM_PROMPT,
     REGISTRY_USER_TEXT,
+    user_text_for,
 )
 from app.schemas import LINES_MAX, MAX_YEAR, MIN_YEAR, ContractExtract, ExtractResponse, RegistryExtract
 from app.uploads import DocInput
@@ -73,6 +75,13 @@ _sleep = asyncio.sleep  # 재시도 전 대기. 테스트에서 바꿔 끼운다
 
 M = TypeVar("M", bound=BaseModel)
 T = TypeVar("T")
+
+# 한 서류: 파일 하나 또는 올린 순서대로의 파일 목록
+Docs = Union[DocInput, Sequence[DocInput]]
+
+
+def _as_docs(doc: Docs) -> tuple[DocInput, ...]:
+    return (doc,) if isinstance(doc, DocInput) else tuple(doc)
 
 
 PROVIDER_ALIASES = {"openai": "openai", "gpt": "openai", "anthropic": "anthropic", "claude": "anthropic"}
@@ -233,12 +242,22 @@ def _source_block(doc: DocInput) -> dict[str, Any]:
     return {"type": doc.kind, "source": {"type": "base64", "media_type": doc.media_type, "data": _b64(doc)}}
 
 
-def _openai_source_block(doc: DocInput, kind: str) -> dict[str, Any]:
-    """OpenAI용 문서 블록. PDF는 input_file, 사진은 input_image (손글씨·작은 글자 때문에 high)."""
+def _openai_source_block(doc: DocInput, kind: str, index: int | None = None) -> dict[str, Any]:
+    """OpenAI용 문서 블록. PDF는 input_file, 사진은 input_image (손글씨·작은 글자 때문에 high).
+
+    파일이 여러 개면 index(1부터)를 파일 이름에 붙인다 (registry-1.pdf, registry-2.pdf …).
+    """
     data_url = f"data:{doc.media_type};base64,{_b64(doc)}"
     if doc.kind == "image":
         return {"type": "input_image", "image_url": data_url, "detail": "high"}
-    return {"type": "input_file", "filename": f"{kind}.pdf", "file_data": data_url}
+    filename = f"{kind}.pdf" if index is None else f"{kind}-{index}.pdf"
+    return {"type": "input_file", "filename": filename, "file_data": data_url}
+
+
+def _openai_source_blocks(docs: tuple[DocInput, ...], kind: str) -> list[dict[str, Any]]:
+    if len(docs) == 1:
+        return [_openai_source_block(docs[0], kind)]
+    return [_openai_source_block(doc, kind, i) for i, doc in enumerate(docs, 1)]
 
 
 def _ai_failed(kind: str, reason: str) -> ApiError:
@@ -299,7 +318,7 @@ class _Reply(NamedTuple):
 
 
 async def _call_claude(
-    client: Any, *, kind: str, system: str, schema: dict[str, Any], doc: DocInput, user_text: str,
+    client: Any, *, kind: str, system: str, schema: dict[str, Any], docs: tuple[DocInput, ...], user_text: str,
     max_tokens: int, timeout: float,
 ) -> _Reply:
     resp = await client.beta.messages.create(
@@ -309,7 +328,9 @@ async def _call_claude(
         fallbacks=FALLBACKS,
         output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": schema}},
         system=system,
-        messages=[{"role": "user", "content": [_source_block(doc), {"type": "text", "text": user_text}]}],
+        messages=[
+            {"role": "user", "content": [*(_source_block(doc) for doc in docs), {"type": "text", "text": user_text}]}
+        ],
         timeout=timeout,
     )
     stop_reason = getattr(resp, "stop_reason", None)
@@ -326,8 +347,8 @@ async def _call_claude(
 
 
 async def _call_openai(
-    client: OpenAIClient, *, kind: str, system: str, schema: dict[str, Any], doc: DocInput, user_text: str,
-    max_tokens: int, timeout: float,
+    client: OpenAIClient, *, kind: str, system: str, schema: dict[str, Any], docs: tuple[DocInput, ...],
+    user_text: str, max_tokens: int, timeout: float,
 ) -> _Reply:
     resp = await client.sdk.responses.create(
         model=client.model,
@@ -335,7 +356,7 @@ async def _call_openai(
         input=[
             {
                 "role": "user",
-                "content": [_openai_source_block(doc, kind), {"type": "input_text", "text": user_text}],
+                "content": [*_openai_source_blocks(docs, kind), {"type": "input_text", "text": user_text}],
             }
         ],
         text={"format": {"type": "json_schema", "name": kind, "schema": schema, "strict": True}},
@@ -372,11 +393,13 @@ async def _request_json(
     kind: str,
     system: str,
     schema: dict[str, Any],
-    doc: DocInput,
+    doc: Docs,
     user_text: str,
     deadline: float | None = None,
 ) -> Any:
     """AI를 불러 JSON 응답을 파싱해 돌려준다. 실패하면 AI_FAILED. client가 OpenAIClient면 OpenAI, 아니면 Claude.
+
+    doc은 파일 하나 또는 한 서류를 이루는 파일 목록이다 (올린 순서대로 한 메시지에 넣는다).
 
     deadline(이벤트 루프 시각)이 있으면 요청 timeout을 남은 시간으로 둔다. 다시 부르는 경우는 둘이다.
     - 일시적 오류(연결·timeout, 5xx, 429): 한 번. retry-after를 기다린 뒤에도 RETRY_MIN_SECONDS 이상 남을 때만.
@@ -385,6 +408,7 @@ async def _request_json(
     """
     call = _call_openai if isinstance(client, OpenAIClient) else _call_claude
     name = "openai" if isinstance(client, OpenAIClient) else "claude"
+    docs = _as_docs(doc)
     max_tokens = MAX_TOKENS
     retried_after_error = False
     attempt = 0
@@ -393,7 +417,7 @@ async def _request_json(
         started = time.perf_counter()
         try:
             reply = await call(
-                client, kind=kind, system=system, schema=schema, doc=doc, user_text=user_text,
+                client, kind=kind, system=system, schema=schema, docs=docs, user_text=user_text,
                 max_tokens=max_tokens, timeout=_request_timeout(deadline),
             )
             failure = None
@@ -419,9 +443,10 @@ async def _request_json(
 
         took = time.perf_counter() - started
         logger.info(
-            "%s doc=%s attempt=%d stop=%s model=%s in_tokens=%s out_tokens=%s took=%.1fs",
+            "%s doc=%s files=%d attempt=%d stop=%s model=%s in_tokens=%s out_tokens=%s took=%.1fs",
             name,
             kind,
+            len(docs),
             attempt,
             reply.raw_stop,
             reply.model,
@@ -612,15 +637,16 @@ def _validate(model: type[M], data: Any, kind: str) -> M:
         raise _ai_failed(kind, "schema_mismatch") from None
 
 
-async def extract_registry(client: Any, doc: DocInput, *, deadline: float | None = None) -> RegistryExtract:
-    """등기부를 읽는다. 등기부가 아니면 NOT_REGISTRY, 토지 등기부면 LAND_REGISTRY."""
+async def extract_registry(client: Any, doc: Docs, *, deadline: float | None = None) -> RegistryExtract:
+    """등기부(파일 하나 또는 여러 개)를 읽는다. 등기부가 아니면 NOT_REGISTRY, 토지 등기부면 LAND_REGISTRY."""
+    docs = _as_docs(doc)
     data = await _request_json(
         client,
         kind="registry",
         system=REGISTRY_SYSTEM_PROMPT,
         schema=REGISTRY_SCHEMA,
-        doc=doc,
-        user_text=REGISTRY_USER_TEXT,
+        doc=docs,
+        user_text=user_text_for(REGISTRY_USER_TEXT, len(docs)),
         deadline=deadline,
     )
     registry = _validate(RegistryExtract, data, "registry")
@@ -658,15 +684,16 @@ def _is_no_term_mark(term: str) -> bool:
     return key == "" or key in _NO_TERM_MARKS
 
 
-async def extract_contract(client: Any, doc: DocInput, *, deadline: float | None = None) -> ContractExtract:
-    """계약서를 읽는다. 임대차 계약서가 아니면 NOT_CONTRACT."""
+async def extract_contract(client: Any, doc: Docs, *, deadline: float | None = None) -> ContractExtract:
+    """계약서(파일 하나 또는 여러 개)를 읽는다. 임대차 계약서가 아니면 NOT_CONTRACT."""
+    docs = _as_docs(doc)
     data = await _request_json(
         client,
         kind="contract",
         system=CONTRACT_SYSTEM_PROMPT,
         schema=CONTRACT_SCHEMA,
-        doc=doc,
-        user_text=CONTRACT_USER_TEXT,
+        doc=docs,
+        user_text=user_text_for(CONTRACT_USER_TEXT, len(docs)),
         deadline=deadline,
     )
     contract = _validate(ContractExtract, data, "contract")
@@ -679,7 +706,7 @@ async def extract_contract(client: Any, doc: DocInput, *, deadline: float | None
 
 
 async def _extract_both(
-    client: Any, registry: DocInput, contract: DocInput | None, deadline: float
+    client: Any, registry: Docs, contract: Docs | None, deadline: float
 ) -> tuple[RegistryExtract, ContractExtract | None]:
     """두 문서를 동시에 읽는다. 등기부 결과를 먼저 기다려 등기부 오류를 먼저 알린다."""
     tasks = [asyncio.create_task(extract_registry(client, registry, deadline=deadline))]
@@ -714,9 +741,9 @@ async def _with_deadline(work: Callable[[float], Awaitable[T]], started_at: floa
 
 
 async def extract_documents(
-    registry: DocInput, contract: DocInput | None, *, client: Any = None, started_at: float | None = None
+    registry: Docs, contract: Docs | None, *, client: Any = None, started_at: float | None = None
 ) -> ExtractResponse:
-    """등기부(필수)와 계약서(선택)를 병렬로 읽는다.
+    """등기부(필수)와 계약서(선택)를 병렬로 읽는다. 각각 파일 하나 또는 올린 순서대로의 파일 목록이다.
 
     - 두 문서를 합쳐 deadline_seconds() 안에(started_at이 있으면 그때부터) 끝내지 못하면
       진행 중인 호출을 취소하고 AI_FAILED.
@@ -724,19 +751,25 @@ async def extract_documents(
     """
     client = client if client is not None else get_client()
     started = time.perf_counter()
+    registry_docs = _as_docs(registry)
+    contract_docs = _as_docs(contract) if contract is not None else None
     registry_result, contract_result = await _with_deadline(
-        lambda deadline: _extract_both(client, registry, contract, deadline), started_at
+        lambda deadline: _extract_both(client, registry_docs, contract_docs, deadline), started_at
     )
-    logger.info("extract done docs=%d took=%.1fs", 1 + (contract is not None), time.perf_counter() - started)
+    files = len(registry_docs) + (len(contract_docs) if contract_docs else 0)
+    logger.info(
+        "extract done docs=%d files=%d took=%.1fs", 1 + (contract is not None), files, time.perf_counter() - started
+    )
     return ExtractResponse(registry=registry_result, contract=contract_result)
 
 
 async def extract_contract_only(
-    contract: DocInput, *, client: Any = None, started_at: float | None = None
+    contract: Docs, *, client: Any = None, started_at: float | None = None
 ) -> ContractExtract:
-    """계약서 하나만 읽는다 (수정된 계약서). 호출·재시도·마감·NOT_CONTRACT는 extract_documents와 같다."""
+    """계약서만 읽는다 (수정된 계약서, 파일 하나 또는 여러 개). 호출·재시도·마감·NOT_CONTRACT는 extract_documents와 같다."""
     client = client if client is not None else get_client()
     started = time.perf_counter()
-    result = await _with_deadline(lambda deadline: extract_contract(client, contract, deadline=deadline), started_at)
-    logger.info("extract done docs=1 contract_only took=%.1fs", time.perf_counter() - started)
+    docs = _as_docs(contract)
+    result = await _with_deadline(lambda deadline: extract_contract(client, docs, deadline=deadline), started_at)
+    logger.info("extract done docs=1 files=%d contract_only took=%.1fs", len(docs), time.perf_counter() - started)
     return result

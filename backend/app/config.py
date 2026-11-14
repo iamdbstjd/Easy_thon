@@ -64,4 +64,7 @@ def setup_logging() -> logging.Logger:
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s"))
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
+    # httpx는 요청 주소를 INFO로 남긴다. 공공 API 주소에는 인증키와 동 이름이 들어가므로 끈다.
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
     return logger

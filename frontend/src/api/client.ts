@@ -9,6 +9,7 @@ import {
   normCompareRequest,
   normContract,
   normExtractResponse,
+  normMarketInsight,
   normRecheckReport,
   normRecheckRequest,
   normReport,
@@ -23,6 +24,7 @@ import type {
   ExtractResponse,
   HealthResponse,
   IcsRequest,
+  MarketInsight,
   RecheckReport,
   RecheckRequest,
   Report,
@@ -88,32 +90,35 @@ export async function health(signal?: AbortSignal): Promise<HealthResponse> {
   return { ai_ready: v.ai_ready === true, public_api_ready: v.public_api_ready === true }
 }
 
-/** POST /api/extract (multipart: registry 필수, contract 선택) */
+/**
+ * POST /api/extract (multipart: registry 필수, contract 선택).
+ * 한 서류가 여러 파일이면 같은 필드 이름으로 올린 순서대로 붙인다. 서버가 한 서류로 이어서 읽는다.
+ */
 export async function extract(
-  registry: File,
-  contract?: File | null,
+  registry: File[],
+  contract: File[] = [],
   signal?: AbortSignal,
 ): Promise<ExtractResponse> {
   let data: unknown
   if (IS_MOCK) {
-    data = await (await loadMocks()).extract(registry, contract ?? null, signal)
+    data = await (await loadMocks()).extract(registry, contract, signal)
   } else {
     const form = new FormData()
-    form.append('registry', registry, registry.name)
-    if (contract) form.append('contract', contract, contract.name)
+    for (const file of registry) form.append('registry', file, file.name)
+    for (const file of contract) form.append('contract', file, file.name)
     data = await sendJson('/api/extract', { method: 'POST', body: form, signal })
   }
   return normExtractResponse(data)
 }
 
-/** POST /api/extract/contract: 계약서 하나만 읽는다 (multipart 필드 contract) */
-export async function extractContract(contract: File, signal?: AbortSignal): Promise<ContractExtract> {
+/** POST /api/extract/contract: 계약서만 읽는다 (multipart 필드 contract, 여러 파일이면 올린 순서대로) */
+export async function extractContract(contract: File[], signal?: AbortSignal): Promise<ContractExtract> {
   let data: unknown
   if (IS_MOCK) {
     data = await (await loadMocks()).extractContract(contract, signal)
   } else {
     const form = new FormData()
-    form.append('contract', contract, contract.name)
+    for (const file of contract) form.append('contract', file, file.name)
     data = await sendJson('/api/extract/contract', { method: 'POST', body: form, signal })
   }
   const result = normContract(data)
@@ -149,6 +154,27 @@ export async function demoCompare(signal?: AbortSignal): Promise<CompareRequest>
     ? await (await loadMocks()).demoCompare(signal)
     : await sendJson('/api/demo/compare-C', { signal })
   return normCompareRequest(data)
+}
+
+/**
+ * POST /api/market: 등기부 주소로 국토교통부 실거래를 찾아 시세와 주변 보증금을 받는다 (AI를 부르지 않는다).
+ * 실패해도 검사는 막지 않는다. 오류는 "불러오지 못함"으로 바꿔 돌려준다.
+ */
+export async function marketLookup(req: CheckRequest, signal?: AbortSignal): Promise<MarketInsight> {
+  try {
+    const data = IS_MOCK
+      ? await (await loadMocks()).market(req, signal)
+      : await sendJson('/api/market', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(req),
+          signal,
+        })
+    return normMarketInsight(data)
+  } catch (err) {
+    if (signal?.aborted) throw err
+    return normMarketInsight({ status: 'unavailable', message: '지금은 실거래 정보를 불러오지 못했어요.' })
+  }
 }
 
 /** POST /api/check (JSON) → 리포트 */

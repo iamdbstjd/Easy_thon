@@ -104,7 +104,7 @@ KST = dt.timezone(dt.timedelta(hours=9))
 
 # 사용자에게 보여 줄 오류 문구
 EXPECTED_MESSAGES = {
-    "UNSUPPORTED_FILE": "등기부는 PDF, 계약서는 사진이나 PDF로 10MB 이하만 올릴 수 있어요.",
+    "UNSUPPORTED_FILE": "PDF나 사진(JPG·PNG)만, 파일 하나 10MB·서류마다 30쪽 이하로 올릴 수 있어요.",
     "NOT_REGISTRY": "등기부등본이 아닌 것 같아요. 인터넷등기소에서 받은 PDF를 올려주세요.",
     "LAND_REGISTRY": "토지 등기부예요. 건물(또는 집합건물) 등기부를 올려주세요.",
     "NOT_CONTRACT": "임대차 계약서가 아닌 것 같아요.",
@@ -503,7 +503,7 @@ def test_extract_not_contract(client, monkeypatch):
 @pytest.mark.parametrize(
     "files",
     [
-        registry_file(PNG, name="looks.pdf"),  # 확장자·Content-Type이 PDF여도 내용으로 판단한다
+        registry_file(b"GIF89a" + b"\x00" * 32, name="looks.pdf"),  # 확장자·Content-Type이 PDF여도 내용으로 판단한다
         registry_file(b"hello", name="a.txt", content_type="text/plain"),
         registry_file(b""),
         registry_file(b"%PDF-1.4\n" + b"0" * (10 * 1024 * 1024)),  # 10MB 초과
@@ -514,7 +514,7 @@ def test_extract_not_contract(client, monkeypatch):
         {**registry_file(), "contract": ("c.txt", b"just text", "text/plain")},
         {**registry_file(), "contract": ("c.pdf", make_pdf(31), "application/pdf")},
     ],
-    ids=["png-as-pdf", "text", "empty", "over-10mb", "31-pages", "user-password-rc4", "user-password-aes256",
+    ids=["gif-as-pdf", "text", "empty", "over-10mb", "31-pages", "user-password-rc4", "user-password-aes256",
          "contract-gif", "contract-text", "contract-31-pages"],
 )
 def test_extract_unsupported_files(client, monkeypatch, files):
@@ -694,7 +694,7 @@ def test_extract_without_api_key_is_503(client):
 
 
 def test_file_validation_runs_before_api_key_check(client):
-    assert_error(client.post("/api/extract", files=registry_file(PNG)), 400, "UNSUPPORTED_FILE")
+    assert_error(client.post("/api/extract", files=registry_file(b"GIF89a" + b"\x00" * 32)), 400, "UNSUPPORTED_FILE")
 
 
 def test_uploads_stay_in_memory():
@@ -1350,11 +1350,99 @@ def test_extract_contract_only_unsupported_files(client, monkeypatch, files):
     assert fake.messages.calls == []
 
 
-def test_extract_contract_only_has_single_file_body_cap(client, monkeypatch):
-    # 파일 하나짜리 경로라 상한이 약 11MB다 (/api/extract의 21MB보다 작다). chunked도 센다.
+# ---------------------------------------------------------------------------
+# 한 서류를 여러 파일로 (쪽마다 찍은 사진, 나눠 저장한 PDF)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_reads_several_files_per_document_in_order(client, monkeypatch):
+    fake = install_ai(monkeypatch, registry=make_response(REGISTRY_OK), contract=make_response(CONTRACT_OK))
+    first, last = make_pdf(2), make_pdf(1)
+    files = [
+        ("registry", ("1.pdf", first, "application/pdf")),
+        ("registry", ("2.jpg", JPEG, "image/jpeg")),
+        ("registry", ("3.pdf", last, "application/pdf")),
+        ("contract", ("p1.png", PNG, "image/png")),
+        ("contract", ("p2.jpg", JPEG, "image/jpeg")),
+    ]
+    r = client.post("/api/extract", files=files)
+    assert r.status_code == 200, r.text
+    assert len(fake.messages.calls) == 2  # 서류마다 한 번만 부른다
+    calls = {doc_kind(c): c for c in fake.messages.calls}
+    registry = calls["registry"]["messages"][0]["content"]
+    assert [b["type"] for b in registry] == ["document", "image", "document", "text"]
+    assert [base64.b64decode(b["source"]["data"]) for b in registry[:3]] == [first, JPEG, last]  # 올린 순서 그대로
+    assert registry[-1]["text"] == prompts.user_text_for(prompts.REGISTRY_USER_TEXT, 3)
+    assert "파일 3개" in registry[-1]["text"]
+    contract = calls["contract"]["messages"][0]["content"]
+    assert [b["type"] for b in contract] == ["image", "image", "text"]
+    assert "파일 2개" in contract[-1]["text"]
+
+
+def test_extract_accepts_registry_photo(client, monkeypatch):
+    fake = install_ai(monkeypatch, registry=make_response(REGISTRY_OK))
+    r = client.post("/api/extract", files={"registry": ("page.png", PNG, "image/png")})
+    assert r.status_code == 200, r.text
+    (kwargs,) = fake.messages.calls
+    block, text = kwargs["messages"][0]["content"]
+    assert (block["type"], block["source"]["media_type"]) == ("image", "image/png")
+    assert text["text"] == prompts.REGISTRY_USER_TEXT  # 파일이 하나면 안내를 덧붙이지 않는다
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        [("registry", (f"{i}.jpg", JPEG, "image/jpeg")) for i in range(uploads.MAX_FILES + 1)],
+        [("registry", ("a.pdf", make_pdf(20), "application/pdf")), ("registry", ("b.pdf", make_pdf(11), "application/pdf"))],
+        [("registry", ("a.pdf", make_pdf(1), "application/pdf")), ("registry", ("b.gif", b"GIF89a" + b"\x00" * 32, "image/gif"))],
+        [
+            ("registry", ("a.pdf", make_pdf(1), "application/pdf")),
+            ("contract", ("1.jpg", JPEG, "image/jpeg")),
+            ("contract", ("2.txt", b"just text", "text/plain")),
+        ],
+    ],
+    ids=["11-files", "31-pages-in-total", "one-bad-registry-file", "one-bad-contract-file"],
+)
+def test_extract_rejects_bad_file_sets(client, monkeypatch, files):
+    fake = install_ai(monkeypatch, registry=make_response(REGISTRY_OK), contract=make_response(CONTRACT_OK))
+    assert_error(client.post("/api/extract", files=files), 400, "UNSUPPORTED_FILE", document=files[-1][0])
+    assert fake.messages.calls == []  # 파일이 틀리면 AI를 부르지 않는다
+
+
+def test_extract_caps_total_upload_size(client, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+    fake = install_ai(monkeypatch, registry=make_response(REGISTRY_OK), contract=make_response(CONTRACT_OK))
+    size = int(6.8 * 1024 * 1024)  # 파일마다 10MB 아래, 셋을 합치면 20MB 위, 요청 상한(21MB) 아래
+    assert size * 3 > uploads.MAX_TOTAL_BYTES and size * 3 + 4096 < uploads.MAX_REQUEST_BYTES
+    photo = b"\xff\xd8\xff" + b"0" * (size - 3)
+    files = [("registry", ("1.jpg", photo, "image/jpeg")), ("registry", ("2.jpg", photo, "image/jpeg")),
+             ("contract", ("1.jpg", photo, "image/jpeg"))]
+    assert_error(client.post("/api/extract", files=files), 400, "UNSUPPORTED_FILE", document=None)
+    assert "reason=total_too_large" in caplog.text
+    assert fake.messages.calls == []
+
+
+def test_extract_non_file_value_in_file_field_is_rejected(client, monkeypatch):
+    fake = install_ai(monkeypatch, registry=make_response(REGISTRY_OK), contract=make_response(CONTRACT_OK))
+    r = client.post("/api/extract", files=registry_file(), data={"contract": "not a file"})
+    assert_error(r, 400, "UNSUPPORTED_FILE", document="contract")
+    assert fake.messages.calls == []
+
+
+def test_extract_contract_only_reads_several_files(client, monkeypatch):
     fake = install_ai(monkeypatch, contract=make_response(CONTRACT_OK))
-    size = uploads.MAX_SINGLE_FILE_REQUEST_BYTES + 1024
-    assert size < uploads.MAX_REQUEST_BYTES
+    files = [("contract", ("p1.jpg", JPEG, "image/jpeg")), ("contract", ("p2.pdf", make_pdf(1), "application/pdf"))]
+    r = client.post("/api/extract/contract", files=files)
+    assert r.status_code == 200, r.text
+    (kwargs,) = fake.messages.calls
+    assert [b["type"] for b in kwargs["messages"][0]["content"]] == ["image", "document", "text"]
+
+
+def test_extract_contract_only_has_body_cap(client, monkeypatch):
+    # 수정된 계약서도 여러 파일로 올릴 수 있어 /api/extract와 같은 상한(21MB)이다. chunked도 센다.
+    fake = install_ai(monkeypatch, contract=make_response(CONTRACT_OK))
+    assert main.UPLOAD_REQUEST_LIMITS[main.EXTRACT_CONTRACT_PATH] == uploads.MAX_REQUEST_BYTES
+    size = uploads.MAX_REQUEST_BYTES + 1024
     head = b'--b\r\nContent-Disposition: form-data; name="contract"; filename="c.jpg"\r\nContent-Type: image/jpeg\r\n\r\n'
     body = head + b"\xff\xd8\xff" + b"0" * size + b"\r\n--b--\r\n"
 

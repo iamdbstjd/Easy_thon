@@ -1,14 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { health } from '../api/client'
 import type { HealthResponse } from '../api/types'
 import { ConsentNotice } from '../components/ConsentNotice'
-import { ContractField } from '../components/ContractField'
 import { ToggleGroup } from '../components/Disclosure'
-import { FilePicker } from '../components/FilePicker'
+import { DocFilesField } from '../components/DocFilesField'
 import { DateField, MoneyField, TextField } from '../components/fields'
 import { IROS_URL } from '../content/static'
-import { checkRegistryFile } from '../lib/files'
+import { MAX_TOTAL_BYTES, totalBytes } from '../lib/files'
 import { useScreenFocus } from '../lib/useScreenFocus'
 import { hasManualValues } from '../state/upload'
 import type { ManualDraft, UploadDraft } from '../state/upload'
@@ -31,19 +30,10 @@ export function UploadScreen({
   onPrivacy: () => void
 }) {
   const titleRef = useScreenFocus<HTMLHeadingElement>()
-  const [registryError, setRegistryError] = useState<string | null>(null)
+  const [registryBusy, setRegistryBusy] = useState(false)
   const [contractBusy, setContractBusy] = useState(false)
   const [server, setServer] = useState<ServerState>(null)
   const [manualOpenAtStart] = useState(() => hasManualValues(draft.manual))
-  const registryPick = useRef(0)
-
-  // 화면을 떠나면 아직 확인 중인 등기부는 버린다
-  useEffect(() => {
-    const seq = registryPick
-    return () => {
-      seq.current += 1
-    }
-  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -53,20 +43,13 @@ export function UploadScreen({
     return () => controller.abort()
   }, [])
 
-  async function pickRegistry(file: File) {
-    const seq = ++registryPick.current
-    setRegistryError(null)
-    const error = await checkRegistryFile(file)
-    if (seq !== registryPick.current) return
-    if (error) setRegistryError(error)
-    else setDraft((d) => ({ ...d, registry: file }))
-  }
-
   function setManual(key: keyof ManualDraft) {
     return (value: string) => setDraft((d) => ({ ...d, manual: { ...d.manual, [key]: value } }))
   }
 
-  const canSubmit = draft.registry !== null && !contractBusy && draft.consent
+  const tooBig = totalBytes([...draft.registry, ...draft.contract].map((p) => p.file)) > MAX_TOTAL_BYTES
+  const hasRegistry = draft.registry.length > 0
+  const canSubmit = hasRegistry && !registryBusy && !contractBusy && !tooBig && draft.consent
 
   return (
     <>
@@ -87,33 +70,36 @@ export function UploadScreen({
       </div>
 
       <div className="rows mt-3">
-        <FilePicker
+        <DocFilesField
           label="등기부등본"
+          doc="registry"
           required
-          accept="application/pdf,.pdf"
-          file={draft.registry}
-          error={registryError}
+          maskable={false}
+          picks={draft.registry}
           describedBy="file-note"
-          onPick={pickRegistry}
-          onClear={() => {
-            registryPick.current += 1
-            setRegistryError(null)
-            setDraft((d) => ({ ...d, registry: null }))
-          }}
+          onChange={(update) => setDraft((d) => ({ ...d, registry: update(d.registry) }))}
+          onBusyChange={setRegistryBusy}
         />
-        <ContractField
+        <DocFilesField
           label="계약서"
+          doc="contract"
           required={false}
-          value={draft.contract}
+          maskable
+          picks={draft.contract}
           describedBy="file-note"
           hint="계약서를 함께 올리면 임대인·호수·특약을 등기부와 대조해요."
-          onChange={(contract) => setDraft((d) => ({ ...d, contract }))}
+          onChange={(update) => setDraft((d) => ({ ...d, contract: update(d.contract) }))}
           onBusyChange={setContractBusy}
         />
       </div>
       <p id="file-note" className="muted mt-1">
-        등기부는 PDF(10MB·30쪽 이하), 계약서는 사진이나 PDF(10MB 이하)
+        PDF나 사진(JPG·PNG 등). 여러 장이면 한 번에 골라도 돼요. 파일 하나 10MB, 서류마다 30쪽까지
       </p>
+      {tooBig && (
+        <p className="form-error" role="alert">
+          올린 파일이 모두 합쳐 20MB를 넘어요. 파일 수를 줄여 주세요.
+        </p>
+      )}
 
       <div className="mt-2">
         <ToggleGroup label="계약서가 아직 없으면 직접 입력" defaultOpen={manualOpenAtStart}>
@@ -162,6 +148,7 @@ export function UploadScreen({
           <li>'현재 유효사항'으로 열람</li>
           <li>열람 화면에서 PDF로 저장</li>
         </ol>
+        <p className="muted mt-1">종이로 받은 등기부는 쪽마다 사진으로 찍어 한 번에 올려도 돼요.</p>
       </section>
 
       <ConsentNotice
@@ -186,16 +173,17 @@ export function UploadScreen({
       </div>
       {!canSubmit && (
         <p id="submit-reason" className="visually-hidden">
-          {submitReason(draft.registry !== null, draft.consent)}
+          {submitReason(hasRegistry, draft.consent, tooBig)}
         </p>
       )}
     </>
   )
 }
 
-function submitReason(hasRegistry: boolean, consent: boolean): string {
+function submitReason(hasRegistry: boolean, consent: boolean, tooBig: boolean): string {
   if (!hasRegistry && !consent) return '등기부등본을 고르고 위 내용을 확인하면 분석할 수 있어요.'
   if (!hasRegistry) return '등기부등본을 고르면 분석할 수 있어요.'
+  if (tooBig) return '올린 파일이 모두 합쳐 20MB를 넘어요.'
   if (!consent) return '위 내용을 확인하면 분석할 수 있어요.'
-  return '계약서 사진을 준비하고 있어요.'
+  return '사진을 준비하고 있어요.'
 }

@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type { RecheckRequest } from '../api/types'
 import { ConsentNotice } from '../components/ConsentNotice'
-import { ContractField } from '../components/ContractField'
-import { FilePicker } from '../components/FilePicker'
+import { DocFilesField } from '../components/DocFilesField'
 import { DateField, DateTimeField, ReadRow } from '../components/fields'
-import { checkRegistryFile } from '../lib/files'
+import { MAX_TOTAL_BYTES, totalBytes } from '../lib/files'
 import { keepTogether } from '../lib/keepTogether'
 import { maskPersonal } from '../lib/mask'
 import { useScreenFocus } from '../lib/useScreenFocus'
@@ -40,28 +39,17 @@ export function RecheckUploadScreen({
   onHome: () => void
 }) {
   const titleRef = useScreenFocus<HTMLHeadingElement>()
-  const [registryError, setRegistryError] = useState<string | null>(null)
+  const [registryBusy, setRegistryBusy] = useState(false)
   const [contractBusy, setContractBusy] = useState(false)
-  const registryPick = useRef(0)
 
-  // 화면을 떠나면 아직 확인 중인 등기부는 버린다
-  useEffect(() => {
-    const seq = registryPick
-    return () => {
-      seq.current += 1
-    }
-  }, [])
-
-  async function pickRegistry(file: File) {
-    const seq = ++registryPick.current
-    setRegistryError(null)
-    const error = await checkRegistryFile(file)
-    if (seq !== registryPick.current) return
-    if (error) setRegistryError(error)
-    else setUpload((u) => ({ ...u, registry: file }))
-  }
-
-  const filesReady = upload.registry !== null && (carry !== null || upload.contract !== null) && !contractBusy
+  const contract = carry ? [] : upload.contract
+  const tooBig = totalBytes([...upload.registry, ...contract].map((p) => p.file)) > MAX_TOTAL_BYTES
+  const filesReady =
+    upload.registry.length > 0 &&
+    (carry !== null || upload.contract.length > 0) &&
+    !registryBusy &&
+    !contractBusy &&
+    !tooBig
   const ready = filesReady && upload.consent
 
   return (
@@ -74,19 +62,15 @@ export function RecheckUploadScreen({
       </div>
 
       <div className="rows mt-3">
-        <FilePicker
+        <DocFilesField
           label="오늘 뗀 등기부"
+          doc="registry"
           required
-          accept="application/pdf,.pdf"
-          file={upload.registry}
-          error={registryError}
+          maskable={false}
+          picks={upload.registry}
           describedBy="recheck-file-note"
-          onPick={pickRegistry}
-          onClear={() => {
-            registryPick.current += 1
-            setRegistryError(null)
-            setUpload((u) => ({ ...u, registry: null }))
-          }}
+          onChange={(update) => setUpload((u) => ({ ...u, registry: update(u.registry) }))}
+          onBusyChange={setRegistryBusy}
         />
         {carry ? (
           <ReadRow label="계약서">
@@ -99,21 +83,26 @@ export function RecheckUploadScreen({
             </button>
           </ReadRow>
         ) : (
-          <ContractField
+          <DocFilesField
             label="계약서"
+            doc="contract"
             required
-            value={upload.contract}
+            maskable
+            picks={upload.contract}
             describedBy="recheck-file-note"
-            onChange={(contract) => setUpload((u) => ({ ...u, contract }))}
+            onChange={(update) => setUpload((u) => ({ ...u, contract: update(u.contract) }))}
             onBusyChange={setContractBusy}
           />
         )}
       </div>
       <p id="recheck-file-note" className="muted mt-1">
-        {carry
-          ? '등기부는 PDF(10MB·30쪽 이하)'
-          : '등기부는 PDF(10MB·30쪽 이하), 계약서는 사진이나 PDF(10MB 이하)'}
+        PDF나 사진(JPG·PNG 등). 여러 장이면 한 번에 골라도 돼요. 파일 하나 10MB, 서류마다 30쪽까지
       </p>
+      {tooBig && (
+        <p className="form-error" role="alert">
+          올린 파일이 모두 합쳐 20MB를 넘어요. 파일 수를 줄여 주세요.
+        </p>
+      )}
 
       <ConsentNotice
         checked={upload.consent}
@@ -143,9 +132,11 @@ export function RecheckUploadScreen({
       {!ready && (
         <p id="recheck-reason" className="visually-hidden">
           {!filesReady
-            ? carry
-              ? '오늘 뗀 등기부를 고르면 읽을 수 있어요.'
-              : '등기부와 계약서를 고르면 읽을 수 있어요.'
+            ? tooBig
+              ? '올린 파일이 모두 합쳐 20MB를 넘어요.'
+              : carry
+                ? '오늘 뗀 등기부를 고르면 읽을 수 있어요.'
+                : '등기부와 계약서를 고르면 읽을 수 있어요.'
             : '위 내용을 확인하면 읽을 수 있어요.'}
         </p>
       )}

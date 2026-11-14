@@ -27,6 +27,7 @@ import type {
   ExtractResponse,
   HealthResponse,
   IcsRequest,
+  MarketInsight,
   Report,
 } from '../api/types'
 import { formatDate, formatWon } from '../lib/format'
@@ -50,7 +51,7 @@ import {
 const params = new URLSearchParams(window.location.search)
 
 const ERROR_TEXT: Record<ErrorCode, string> = {
-  UNSUPPORTED_FILE: '등기부는 PDF, 계약서는 사진이나 PDF로 10MB 이하만 올릴 수 있어요.',
+  UNSUPPORTED_FILE: 'PDF나 사진(JPG·PNG)만, 파일 하나 10MB·서류마다 30쪽 이하로 올릴 수 있어요.',
   NOT_REGISTRY: '등기부등본이 아닌 것 같아요. 인터넷등기소에서 받은 PDF를 올려주세요.',
   LAND_REGISTRY: '토지 등기부예요. 건물(또는 집합건물) 등기부를 올려주세요.',
   NOT_CONTRACT: '임대차 계약서가 아닌 것 같아요.',
@@ -114,8 +115,8 @@ export async function health(signal?: AbortSignal): Promise<HealthResponse> {
 }
 
 export async function extract(
-  _registry: File,
-  contract: File | null,
+  _registry: File[],
+  contract: File[],
   signal?: AbortSignal,
 ): Promise<ExtractResponse> {
   const delay = Number(params.get('mockExtractMs') ?? '') || 4000
@@ -126,7 +127,7 @@ export async function extract(
   const source = structuredClone(REQUEST_C)
   return {
     registry: { ...source.registry, unreadable: ['2쪽 오른쪽 아래 도장 부분이 흐려서 일부를 읽지 못했어요.'] },
-    contract: contract ? source.contract : null,
+    contract: contract.length > 0 ? source.contract : null,
   }
 }
 
@@ -323,11 +324,46 @@ export async function recheck(req: RecheckRequest, signal?: AbortSignal): Promis
 // ---------------------------------------------------------------------------
 
 /** 계약서 하나만 읽기. C에서는 요청서대로 고친 계약서를, 그 밖에는 원래 계약서를 돌려준다 */
-export async function extractContract(_contract: File, signal?: AbortSignal): Promise<ContractExtract> {
+export async function extractContract(_contract: File[], signal?: AbortSignal): Promise<ContractExtract> {
   await wait(Number(params.get('mockExtractMs') ?? '') || 3000, signal)
   throwMockError('contract')
   if (lastScenario === 'C') return structuredClone(C_REVISED_CONTRACT)
   return structuredClone(REQUESTS[lastScenario].contract as ContractExtract)
+}
+
+/** 실거래 (가짜): 같은 건물 매매 3건, 전세 2건. ?mockMarket=none이면 찾지 못함 */
+export async function market(req: CheckRequest, signal?: AbortSignal): Promise<MarketInsight> {
+  await wait(600, signal)
+  if (params.get('mockMarket') === 'none' || req.mode === 'demo') {
+    return { status: 'unavailable', message: '지금은 실거래 정보를 불러오지 못했어요.', housing_type: null,
+      area_name: null, period: null, market: null, sale: null, jeonse: null, monthly_deposit: null,
+      monthly_rent: null, deals: [], notes: [] }
+  }
+  const period = '2025-12 ~ 2026-11'
+  const deal = (kind: 'sale' | 'jeonse', date: string, amount: number, floor: string) => ({
+    kind, date, name: '○○파크빌', floor, area_m2: 59.5, same_building: true, contract_type: kind === 'sale' ? null : '신규',
+    price: kind === 'sale' ? amount : null, deposit: kind === 'sale' ? null : amount, monthly_rent: kind === 'sale' ? null : 0,
+  })
+  return {
+    status: 'ok',
+    message: null,
+    housing_type: '연립다세대',
+    area_name: '용인시 수지구 죽전동',
+    period,
+    market: { price: 230_000_000, method: 'same_building', deals: 3, period },
+    sale: { scope: 'same_building', similar_area: true, per_m2: false, period, count: 3, median: 230_000_000, low: 215_000_000, high: 240_000_000 },
+    jeonse: { scope: 'same_building', similar_area: true, per_m2: false, period, count: 2, median: 160_000_000, low: 150_000_000, high: 170_000_000 },
+    monthly_deposit: null,
+    monthly_rent: null,
+    deals: [
+      deal('sale', '2026-10-20', 230_000_000, '2'),
+      deal('sale', '2026-07-03', 240_000_000, '4'),
+      deal('sale', '2026-02-11', 215_000_000, '1'),
+      deal('jeonse', '2026-09-28', 170_000_000, '3'),
+      deal('jeonse', '2026-03-15', 150_000_000, '2'),
+    ],
+    notes: ['동·호수는 공개되지 않아 같은 건물 거래는 번지로 찾았어요.'],
+  }
 }
 
 export async function demoCompare(signal?: AbortSignal): Promise<CompareRequest> {

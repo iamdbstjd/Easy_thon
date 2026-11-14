@@ -2,7 +2,7 @@
 
 import type { ManualInput } from '../api/types'
 import { digitsToNumber } from '../lib/format'
-import type { ContractPick } from './contract'
+import type { FilePick } from './contract'
 
 /** 직접 입력. 금액은 숫자만 담은 문자열, 날짜는 "YYYY-MM-DD" 또는 "" */
 export interface ManualDraft {
@@ -15,9 +15,10 @@ export interface ManualDraft {
 }
 
 export interface UploadDraft {
-  registry: File | null
-  /** 보낼 계약서 (사진이면 줄이고 가린 JPEG) */
-  contract: ContractPick | null
+  /** 등기부 파일들 (한 등기부를 나눈 PDF·사진, 올린 순서) */
+  registry: FilePick[]
+  /** 계약서 파일들 (사진이면 줄이고 가린 JPEG, 올린 순서). 없으면 빈 목록 */
+  contract: FilePick[]
   manual: ManualDraft
   /** 서류를 AI로 보내는 것에 대한 확인 (메모리에만) */
   consent: boolean
@@ -33,7 +34,7 @@ export const EMPTY_MANUAL_DRAFT: ManualDraft = {
 }
 
 export function emptyUploadDraft(): UploadDraft {
-  return { registry: null, contract: null, manual: { ...EMPTY_MANUAL_DRAFT }, consent: false }
+  return { registry: [], contract: [], manual: { ...EMPTY_MANUAL_DRAFT }, consent: false }
 }
 
 export function hasManualValues(manual: ManualDraft): boolean {

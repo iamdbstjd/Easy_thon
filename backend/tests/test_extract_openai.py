@@ -188,6 +188,16 @@ def test_contract_photo_is_sent_as_image():
     assert client.sdk.responses.calls[0]["text"]["format"]["name"] == "contract"
 
 
+def test_several_files_go_in_one_request_in_order():
+    client = openai_client(make_reply(REGISTRY_OK))
+    run(extract.extract_registry(client, [PDF_DOC, PNG_DOC, PDF_DOC]))
+    (kwargs,) = client.sdk.responses.calls
+    content = kwargs["input"][0]["content"]
+    assert [b["type"] for b in content] == ["input_file", "input_image", "input_file", "input_text"]
+    assert [content[0]["filename"], content[2]["filename"]] == ["registry-1.pdf", "registry-3.pdf"]
+    assert content[-1]["text"] == extract.user_text_for(extract.REGISTRY_USER_TEXT, 3)
+
+
 def test_extract_documents_reads_both_in_parallel():
     client = openai_client(make_reply(REGISTRY_OK), make_reply(CONTRACT_OK))
     result = run(extract.extract_documents(PDF_DOC, PNG_DOC, client=client))

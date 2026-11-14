@@ -32,9 +32,9 @@ const TITLES: Record<ErrorPhase, string> = {
  */
 const UNSUPPORTED_FILE_TEXT: Record<ErrorDocument, string> = {
   registry:
-    "등기부 PDF가 열리지 않거나 10MB·30쪽을 넘으면 올릴 수 없어요. 인터넷등기소에서 '현재 유효사항'으로 다시 열람해 PDF로 저장해 보세요.",
+    "등기부 파일이 열리지 않거나, 파일 하나가 10MB를 넘거나, 모두 합쳐 30쪽(사진은 한 장이 한 쪽)을 넘으면 올릴 수 없어요. 인터넷등기소에서 '현재 유효사항'으로 다시 열람해 PDF로 저장해 보세요.",
   contract:
-    '계약서 파일을 열지 못했어요. 사진(JPG·PNG·WEBP)이나 10MB 이하 PDF만 올릴 수 있어요. PDF가 열리지 않으면 계약서를 사진으로 찍어 올려 보세요.',
+    '계약서 파일을 열지 못했어요. 사진(JPG·PNG 등)이나 PDF로, 파일 하나 10MB·모두 합쳐 30쪽까지 올릴 수 있어요. PDF가 열리지 않으면 계약서를 사진으로 찍어 올려 보세요.',
 }
 
 const BACK_LABELS: Record<ErrorPhase, string> = {

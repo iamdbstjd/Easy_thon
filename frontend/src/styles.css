@@ -360,6 +360,22 @@ textarea.input {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
+/* 한 서류를 이루는 파일 목록 (올린 순서) */
+.file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.file-list > li + li {
+  border-top: 1px dashed var(--rule);
+}
+.file-order {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.file-name {
+  overflow-wrap: anywhere;
+}
 
 /* ---------------------------------------------------------------------------
    버튼과 글자 링크
@@ -1251,4 +1267,71 @@ details:not([open]) > summary .when-open {
   flex-wrap: wrap;
   align-items: center;
   gap: 0 24px;
+}
+
+/* ---------------------------------------------------------------------------
+   실거래로 본 시세와 보증금 (1절 대조표 아래)
+   --------------------------------------------------------------------------- */
+.market-block {
+  margin-top: 24px;
+}
+.market-block h3 {
+  margin-bottom: 4px;
+  font-size: 17px;
+}
+.market-summary {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+.market-summary > div {
+  display: grid;
+  grid-template-columns: 9em minmax(0, 1fr);
+  column-gap: 12px;
+}
+.market-summary dt {
+  color: var(--text-2);
+}
+.market-summary dd {
+  font-weight: 600;
+}
+.market-summary dd .muted {
+  font-weight: 400;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+.deal-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-top: 1px solid var(--rule);
+  font-size: 14px;
+}
+.deal-table th,
+.deal-table td {
+  padding: 6px 12px 6px 0;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  white-space: nowrap;
+}
+.deal-table thead th {
+  color: var(--text-2);
+  font-weight: 600;
+}
+.deal-table .num {
+  padding-right: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tag {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--rule);
+  color: var(--text-2);
+  font-size: 12px;
+}
+@media (max-width: 559px) {
+  .market-summary > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

@@ -1,11 +1,13 @@
 import { useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 import { ConsentNotice } from '../components/ConsentNotice'
-import { ContractField } from '../components/ContractField'
+import { DocFilesField } from '../components/DocFilesField'
+import { MAX_TOTAL_BYTES, totalBytes } from '../lib/files'
 import { useScreenFocus } from '../lib/useScreenFocus'
-import type { ContractPick } from '../state/contract'
+import type { FilePick } from '../state/contract'
 
 /**
- * 요청서대로 고친 계약서 하나만 올린다. 등기부·직접 입력·공공 데이터·기준일은
+ * 요청서대로 고친 계약서만 올린다 (여러 파일이면 올린 순서대로 한 계약서). 등기부·직접 입력·공공 데이터·기준일은
  * 방금 검사에 쓴 값(메모리의 CheckRequest)을 그대로 쓴다. 아무것도 저장하지 않는다.
  */
 export function CompareUploadScreen({
@@ -18,8 +20,9 @@ export function CompareUploadScreen({
   onPrivacy,
   onHome,
 }: {
-  contract: ContractPick | null
-  setContract: (contract: ContractPick | null) => void
+  /** 수정된 계약서 파일들 (올린 순서) */
+  contract: FilePick[]
+  setContract: Dispatch<SetStateAction<FilePick[]>>
   consent: boolean
   setConsent: (consent: boolean) => void
   onSubmit: () => void
@@ -31,7 +34,8 @@ export function CompareUploadScreen({
   const titleRef = useScreenFocus<HTMLHeadingElement>()
   const [busy, setBusy] = useState(false)
 
-  const fileReady = contract !== null && !busy
+  const tooBig = totalBytes(contract.map((p) => p.file)) > MAX_TOTAL_BYTES
+  const fileReady = contract.length > 0 && !busy && !tooBig
   const ready = fileReady && consent
 
   return (
@@ -44,18 +48,25 @@ export function CompareUploadScreen({
       </div>
 
       <div className="rows mt-3">
-        <ContractField
+        <DocFilesField
           label="수정된 계약서"
+          doc="contract"
           required
-          value={contract}
+          maskable
+          picks={contract}
           describedBy="compare-file-note"
-          onChange={setContract}
+          onChange={(update) => setContract((current) => update(current))}
           onBusyChange={setBusy}
         />
       </div>
       <p id="compare-file-note" className="muted mt-1">
-        사진이나 PDF(10MB 이하)
+        사진이나 PDF. 여러 장이면 한 번에 골라도 돼요. 파일 하나 10MB까지
       </p>
+      {tooBig && (
+        <p className="form-error" role="alert">
+          올린 파일이 모두 합쳐 20MB를 넘어요. 파일 수를 줄여 주세요.
+        </p>
+      )}
 
       <ConsentNotice checked={consent} onChange={setConsent} onPrivacy={onPrivacy} />
 
@@ -78,7 +89,11 @@ export function CompareUploadScreen({
       </div>
       {!ready && (
         <p id="compare-reason" className="visually-hidden">
-          {fileReady ? '위 내용을 확인하면 비교할 수 있어요.' : '수정된 계약서를 고르면 비교할 수 있어요.'}
+          {fileReady
+            ? '위 내용을 확인하면 비교할 수 있어요.'
+            : tooBig
+              ? '올린 파일이 모두 합쳐 20MB를 넘어요.'
+              : '수정된 계약서를 고르면 비교할 수 있어요.'}
         </p>
       )}
     </>

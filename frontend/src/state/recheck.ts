@@ -3,7 +3,7 @@
 
 import type { ContractExtract, RecheckRequest } from '../api/types'
 import { isoToLocalInput, localInputToIso } from '../lib/format'
-import type { ContractPick } from './contract'
+import type { FilePick } from './contract'
 
 /** S5(또는 S7)에서 이어 받은 계약서와, 계약 때 본 등기부의 열람 일시. 예시 계약서는 이어 받지 않는다 */
 export interface RecheckCarry {
@@ -12,14 +12,16 @@ export interface RecheckCarry {
 }
 
 export interface RecheckUpload {
-  registry: File | null
-  contract: ContractPick | null
+  /** 오늘 뗀 등기부 파일들 (올린 순서) */
+  registry: FilePick[]
+  /** 계약서 파일들. 앞 화면에서 이어 받았으면 빈 목록 */
+  contract: FilePick[]
   /** 서류를 AI로 보내는 것에 대한 확인 (메모리에만) */
   consent: boolean
 }
 
 export function emptyRecheckUpload(): RecheckUpload {
-  return { registry: null, contract: null, consent: false }
+  return { registry: [], contract: [], consent: false }
 }
 
 /** 읽은 뒤 확인하는 칸. 날짜는 "YYYY-MM-DD", 열람 일시는 "YYYY-MM-DDTHH:mm" */

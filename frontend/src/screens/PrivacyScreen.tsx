@@ -16,7 +16,7 @@ export function PrivacyScreen({ onBack }: { onBack: () => void }) {
       <section className="doc-section" aria-labelledby="privacy-what">
         <h2 id="privacy-what">받는 정보</h2>
         <ul className="dot-list">
-          <li>등기부등본 PDF</li>
+          <li>등기부등본 PDF나 사진</li>
           <li>계약서 사진이나 PDF (올린 경우)</li>
           <li>직접 입력한 값 (보증금, 월세, 계약 예정일, 임대인 이름, 선순위 보증금, 시세)</li>
         </ul>
@@ -32,7 +32,7 @@ export function PrivacyScreen({ onBack }: { onBack: () => void }) {
         <dl className="rows">
           <div className="row">
             <dt>보내는 것</dt>
-            <dd>올린 서류 파일(등기부 PDF, 계약서 사진·PDF)만 보내요. 내용을 옮겨 적는 데 써요.</dd>
+            <dd>올린 서류 파일(등기부·계약서의 PDF나 사진)만 보내요. 내용을 옮겨 적는 데 써요.</dd>
           </div>
           <div className="row">
             <dt>받는 곳</dt>
@@ -45,6 +45,13 @@ export function PrivacyScreen({ onBack }: { onBack: () => void }) {
           <div className="row">
             <dt>국외 이전</dt>
             <dd>미국에 있는 회사로 보내므로 개인정보가 나라 밖으로 옮겨져요.</dd>
+          </div>
+          <div className="row">
+            <dt>시세 찾기</dt>
+            <dd>
+              실거래 시세를 찾으려고 등기부 주소 중 동 이름까지만(예: 경기도 용인시 수지구 죽전동) 행정안전부 주소
+              API로, 지역 코드와 연월만 국토교통부 실거래가 API로 보내요. 번지·이름은 보내지 않아요.
+            </dd>
           </div>
           <div className="row">
             <dt>보내지 않음</dt>

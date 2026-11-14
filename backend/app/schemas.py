@@ -154,6 +154,57 @@ class MarketPrice(Model):
     period: Optional[ShortStr] = None
 
 
+class MarketStats(Model):
+    """실거래 묶음 요약 (원). scope: 같은 건물이면 same_building, 같은 동이면 same_dong.
+
+    similar_area: 면적이 비슷한 거래만 골랐는지 (면적을 모르거나 단독·다가구면 false).
+    """
+
+    scope: Literal["same_building", "same_dong"]
+    similar_area: bool = True
+    per_m2: bool = False  # ㎡당 가격으로 이 집 면적에 맞춘 추정 (같은 동 거래가 적을 때, 매매만)
+    period: Optional[ShortStr] = None  # 고른 거래의 기간 "2023-12 ~ 2026-11" (모자라면 최근 3년까지 넓힌다)
+    count: int = Field(ge=0, le=1_000_000)
+    median: Won
+    low: Won
+    high: Won
+
+
+class MarketDeal(Model):
+    """화면에 보여 줄 실거래 한 건. 동·호수는 공개되지 않는다."""
+
+    kind: Literal["sale", "jeonse", "monthly"]
+    date: BoundedDate
+    name: Optional[NameStr] = None
+    floor: Optional[ShortStr] = None
+    area_m2: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    price: Optional[Won] = None
+    deposit: Optional[Won] = None
+    monthly_rent: Optional[Won] = None
+    contract_type: Optional[ShortStr] = None  # 신규·갱신
+    same_building: bool = False
+
+
+class MarketInsight(Model):
+    """POST /api/market 응답: 국토교통부 실거래로 본 시세와 주변 보증금.
+
+    market은 검사 입력의 market 칸에 그대로 넣을 수 있다 (R5). status가 ok가 아니면 message를 보여 준다.
+    """
+
+    status: Literal["ok", "no_deals", "unavailable"]
+    message: Optional[TextStr] = None
+    housing_type: Optional[Literal["아파트", "연립다세대", "오피스텔", "단독다가구"]] = None
+    area_name: Optional[NameStr] = None
+    period: Optional[ShortStr] = None
+    market: Optional[MarketPrice] = None
+    sale: Optional[MarketStats] = None
+    jeonse: Optional[MarketStats] = None
+    monthly_deposit: Optional[MarketStats] = None
+    monthly_rent: Optional[MarketStats] = None
+    deals: list[MarketDeal] = Field(default_factory=list, max_length=20)
+    notes: list[TextStr] = Field(default_factory=list, max_length=10)
+
+
 class ManualInput(Model):
     deposit: Optional[Won] = None
     monthly_rent: Optional[Won] = None

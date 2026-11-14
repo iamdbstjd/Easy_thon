@@ -7,6 +7,7 @@ import {
   demoRecheck,
   extract,
   extractContract,
+  marketLookup,
   recheck,
 } from './api/client'
 import { ApiError, errorMessage, isFileError } from './api/errors'
@@ -18,6 +19,7 @@ import type {
   ContractExtract,
   DemoScenario,
   ISODateTime,
+  MarketInsight,
   Mode,
   RecheckReport,
   RecheckRequest,
@@ -37,8 +39,8 @@ import { ReportScreen } from './screens/ReportScreen'
 import { ReviewScreen } from './screens/ReviewScreen'
 import { StartScreen } from './screens/StartScreen'
 import { UploadScreen } from './screens/UploadScreen'
-import { contractFileToSend, sentPick } from './state/contract'
-import type { ContractPick } from './state/contract'
+import { filesToSend, sentPicks } from './state/contract'
+import type { FilePick } from './state/contract'
 import { emptyRecheckUpload } from './state/recheck'
 import type { RecheckCarry, RecheckUpload } from './state/recheck'
 import { emptyUploadDraft, manualFromDraft } from './state/upload'
@@ -76,6 +78,25 @@ const TIMEOUT_MS = 90_000
 const TIMEOUT_MESSAGE = '90초 안에 끝나지 않아 멈췄어요. 잠시 후 다시 시도하거나 예시 결과를 확인하세요.'
 /** /api/check가 이보다 빨리 끝나면 S3를 거치지 않고 바로 리포트를 보여준다 (화면 깜빡임 방지) */
 const CHECK_PROGRESS_DELAY_MS = 400
+/** 서류를 읽은 뒤 실거래 시세를 기다리는 최대 시간. 넘으면 시세 없이 내용 확인으로 넘어간다 */
+const MARKET_WAIT_MS = 15_000
+
+/** ms 안에 끝나지 않거나 실패하면 null */
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve(null), ms)
+    work.then(
+      (value) => {
+        window.clearTimeout(timer)
+        resolve(value)
+      },
+      () => {
+        window.clearTimeout(timer)
+        resolve(null)
+      },
+    )
+  })
+}
 
 interface Task {
   signal: AbortSignal
@@ -162,6 +183,8 @@ export default function App() {
   const [upload, setUpload] = useState<UploadDraft>(emptyUploadDraft)
   const [request, setRequest] = useState<CheckRequest | null>(null)
   const [report, setReport] = useState<Report | null>(null)
+  /** 실제 분석에서 찾은 실거래 (시세·주변 보증금). 예시에는 없다 */
+  const [marketInsight, setMarketInsight] = useState<MarketInsight | null>(null)
   const [checking, setChecking] = useState(false)
   const [demoLoading, setDemoLoading] = useState<DemoScenario | null>(null)
   const [lastDemo, setLastDemo] = useState<DemoScenario>('C')
@@ -177,7 +200,7 @@ export default function App() {
   const [recheckDemoLoading, setRecheckDemoLoading] = useState(false)
 
   // 수정 전·후 비교. 수정 전 입력은 지금의 request(메모리)이고, 저장하지 않는다.
-  const [compareContract, setCompareContract] = useState<ContractPick | null>(null)
+  const [compareContract, setCompareContract] = useState<FilePick[]>([])
   const [compareConsent, setCompareConsent] = useState(false)
   /** 비교 중인 요청 (다시 시도할 때 쓴다) */
   const [compareDraft, setCompareDraft] = useState<CompareRequest | null>(null)
@@ -336,27 +359,31 @@ export default function App() {
   /** S2 → S3 → S4: 서류를 보내서 읽은 값을 받는다 */
   async function runExtract() {
     const registry = upload.registry
-    const pick = upload.contract
-    if (!registry || !upload.consent) return
+    const picks = upload.contract
+    if (registry.length === 0 || !upload.consent) return
     const task = beginTask()
     const manual = manualFromDraft(upload.manual)
     show({
       name: 'progress',
       phase: 'extract',
       startedAt: Date.now(),
-      hasContract: pick !== null,
+      hasContract: picks.length > 0,
       source: 'live',
     })
     try {
       // 계약서 사진은 가린 사진만 보낸다. 가리기 전 사진은 보내는 순간 버린다
-      const contractFile = await contractFileToSend(pick)
+      const contractFiles = await filesToSend(picks)
       if (!task.isCurrent()) return
-      if (pick && contractFile) {
-        setUpload((d) => (d.contract === pick ? { ...d, contract: sentPick(pick, contractFile) } : d))
+      if (picks.length > 0) {
+        setUpload((d) => (d.contract === picks ? { ...d, contract: sentPicks(picks, contractFiles) } : d))
       }
-      const res = await extract(registry, contractFile, task.signal)
+      const res = await extract(
+        registry.map((p) => p.file),
+        contractFiles,
+        task.signal,
+      )
       if (!task.isCurrent()) return
-      setRequest({
+      const base: CheckRequest = {
         registry: res.registry,
         contract: res.contract,
         manual,
@@ -364,7 +391,12 @@ export default function App() {
         market: null,
         today: null,
         mode: 'live',
-      })
+      }
+      // 실거래 시세: 정해진 시간 안에 못 찾으면 시세 없이 넘어간다 (검사를 막지 않는다)
+      const insight = await withTimeout(marketLookup(base, task.signal), MARKET_WAIT_MS)
+      if (!task.isCurrent()) return
+      setMarketInsight(insight)
+      setRequest(insight?.market ? { ...base, market: insight.market } : base)
       setReport(null)
       show({ name: 'review' })
     } catch (err) {
@@ -409,6 +441,7 @@ export default function App() {
     const task = beginTask()
     setDemoLoading(scenario)
     setLastDemo(scenario)
+    setMarketInsight(null)
     try {
       const req = await demo(scenario, task.signal)
       if (!task.isCurrent()) return
@@ -436,23 +469,27 @@ export default function App() {
   async function runRecheckExtract() {
     const registry = recheckUpload.registry
     const carry = recheckCarry
-    const pick = carry ? null : recheckUpload.contract
-    if (!registry || (!carry && !pick) || !recheckUpload.consent) return
+    const picks = carry ? [] : recheckUpload.contract
+    if (registry.length === 0 || (!carry && picks.length === 0) || !recheckUpload.consent) return
     const task = beginTask()
     show({
       name: 'progress',
       phase: 'recheck-extract',
       startedAt: Date.now(),
-      hasContract: pick !== null,
+      hasContract: picks.length > 0,
       source: 'live',
     })
     try {
-      const contractFile = await contractFileToSend(pick)
+      const contractFiles = await filesToSend(picks)
       if (!task.isCurrent()) return
-      if (pick && contractFile) {
-        setRecheckUpload((u) => (u.contract === pick ? { ...u, contract: sentPick(pick, contractFile) } : u))
+      if (picks.length > 0) {
+        setRecheckUpload((u) => (u.contract === picks ? { ...u, contract: sentPicks(picks, contractFiles) } : u))
       }
-      const res = await extract(registry, contractFile, task.signal)
+      const res = await extract(
+        registry.map((p) => p.file),
+        contractFiles,
+        task.signal,
+      )
       if (!task.isCurrent()) return
       // 이어 받은 계약서는 늘 실제 계약서다 (liveCarry). 예시 계약서는 여기까지 오지 않는다
       const contract = carry?.contract ?? res.contract
@@ -528,7 +565,7 @@ export default function App() {
   /** S5 3절 → 수정된 계약서 올리기 */
   function openCompare() {
     stopRunning()
-    setCompareContract(null)
+    setCompareContract([])
     setCompareConsent(false)
     show({ name: 'compare-upload' })
   }
@@ -545,16 +582,16 @@ export default function App() {
   /** 고친 계약서 읽기 → 비교 (수정 전 = 지금의 검사 입력, 수정 후 = 계약서만 바꾼 입력) */
   async function runCompareExtract() {
     const before = request
-    const pick = compareContract
-    if (!before || !pick || !compareConsent) return
+    const picks = compareContract
+    if (!before || picks.length === 0 || !compareConsent) return
     const task = beginTask()
     let stage: ErrorPhase = 'compare-extract'
     show({ name: 'progress', phase: 'compare-extract', startedAt: Date.now(), hasContract: true, source: 'live' })
     try {
-      const file = (await contractFileToSend(pick)) ?? pick.file
+      const files = await filesToSend(picks)
       if (!task.isCurrent()) return
-      setCompareContract((c) => (c === pick ? sentPick(pick, file) : c))
-      const contract = await extractContract(file, task.signal)
+      setCompareContract((c) => (c === picks ? sentPicks(picks, files) : c))
+      const contract = await extractContract(files, task.signal)
       if (!task.isCurrent()) return
       const req: CompareRequest = {
         before,
@@ -577,7 +614,7 @@ export default function App() {
   /** 비교만 다시 시도 */
   async function runCompare(req: CompareRequest) {
     const task = beginTask()
-    const source = compareContract ? 'live' : req.mode // 올린 계약서가 있으면 그 계약서를 읽은 비교다
+    const source = compareContract.length > 0 ? 'live' : req.mode // 올린 계약서가 있으면 그 계약서를 읽은 비교다
     show({ name: 'progress', phase: 'compare', startedAt: Date.now(), hasContract: true, source })
     try {
       await compareAndCheck(req, task)
@@ -592,7 +629,7 @@ export default function App() {
   async function loadCompareDemo() {
     const task = beginTask()
     setCompareDemoLoading(true)
-    setCompareContract(null)
+    setCompareContract([])
     try {
       const req = await demoCompare(task.signal)
       if (!task.isCurrent()) return
@@ -619,7 +656,7 @@ export default function App() {
   /** 처음으로: 메모리의 서류·결과를 모두 버리고, 브라우저 기록도 첫 칸으로 돌린다 */
   function goHome() {
     stopRunning()
-    setCompareContract(null)
+    setCompareContract([])
     setCompareConsent(false)
     setCompareDraft(null)
     setCompareReport(null)
@@ -628,6 +665,7 @@ export default function App() {
     setUpload(emptyUploadDraft())
     setRequest(null)
     setReport(null)
+    setMarketInsight(null)
     setRecheckCarry(null)
     setRecheckUpload(emptyRecheckUpload())
     setRecheckDraft(null)
@@ -754,6 +792,7 @@ export default function App() {
         <ReportScreen
           report={report}
           request={request}
+          marketInsight={request?.mode === 'live' ? marketInsight : null}
           onEdit={() => {
             setReviewFocus(null)
             backTo({ name: 'review' })

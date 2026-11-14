@@ -48,7 +48,7 @@ export function StartScreen({
         <dl className="rows">
           <div className="row">
             <dt>등기부등본</dt>
-            <dd>PDF, 필수</dd>
+            <dd>PDF·사진, 필수</dd>
           </div>
           <div className="row">
             <dt>임대차 계약서</dt>

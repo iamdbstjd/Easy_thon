@@ -999,6 +999,57 @@ def test_contract_pdf_gets_pdf_checks():
     assert unsupported(uploads.validate_contract, make_pdf(31)) == "contract:too_many_pages"
 
 
+@pytest.mark.parametrize(
+    ("data", "media_type"),
+    [
+        (b"\xff\xd8\xff\xe0" + b"\x00" * 16, "image/jpeg"),
+        (b"\x89PNG\r\n\x1a\n" + b"\x00" * 16, "image/png"),
+        (b"RIFF\x24\x00\x00\x00WEBPVP8 " + b"\x00" * 16, "image/webp"),
+    ],
+    ids=["jpeg", "png", "webp"],
+)
+def test_registry_accepts_photos(data, media_type):
+    # 종이 등기부를 찍은 사진이나 화면 캡처도 받는다
+    doc = uploads.validate_registry(data)
+    assert (doc.kind, doc.media_type, doc.data, doc.pages) == ("image", media_type, data, 1)
+
+
+JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 16
+
+
+def files_reason(doc, files):
+    return unsupported(lambda data: uploads.validate_files(doc, data), files)
+
+
+def test_validate_files_keeps_order_and_counts_pages():
+    first, last = make_pdf(3), make_pdf(2)
+    docs = uploads.validate_files("registry", [first, JPEG_BYTES, last])
+    assert [(d.kind, d.pages) for d in docs] == [("document", 3), ("image", 1), ("document", 2)]
+    assert [d.data for d in docs] == [first, JPEG_BYTES, last]
+
+
+def test_validate_files_limits():
+    assert files_reason("registry", []) == "registry:empty"
+    assert files_reason("contract", [JPEG_BYTES] * (uploads.MAX_FILES + 1)) == "contract:too_many_files"
+    assert len(uploads.validate_files("contract", [JPEG_BYTES] * uploads.MAX_FILES)) == uploads.MAX_FILES
+    # 쪽 수는 파일을 합쳐서 센다 (사진 한 장은 한 쪽)
+    assert files_reason("registry", [make_pdf(20), make_pdf(11)]) == "registry:too_many_pages"
+    assert files_reason("registry", [make_pdf(29), JPEG_BYTES, JPEG_BYTES]) == "registry:too_many_pages"
+    assert len(uploads.validate_files("registry", [make_pdf(29), JPEG_BYTES])) == 2  # 딱 30쪽은 통과
+    # 파일 하나라도 틀리면 그 서류 전체를 거절한다
+    assert files_reason("registry", [make_pdf(1), b"GIF89a" + b"\x00" * 16]) == "registry:unsupported_type"
+    assert files_reason("contract", [JPEG_BYTES, b""]) == "contract:empty"
+
+
+def test_total_size_limit():
+    half = uploads.MAX_TOTAL_BYTES // 2
+    uploads.check_total_size([b"x" * half, b"x" * half])  # 딱 20MB는 통과
+    with pytest.raises(ApiError) as excinfo:
+        uploads.check_total_size([b"x" * half, b"x" * (half + 1)])
+    error = excinfo.value
+    assert (error.code, error.reason, error.document) == ("UNSUPPORTED_FILE", "total_too_large", None)
+
+
 def test_registry_accepts_pdf_up_to_30_pages():
     data = make_pdf(30)
     doc = uploads.validate_registry(data)
@@ -1009,14 +1060,16 @@ def test_registry_accepts_pdf_up_to_30_pages():
     ("data", "reason"),
     [
         (b"", "registry:empty"),
-        (b"\x89PNG\r\n\x1a\n" + b"\x00" * 16, "registry:not_pdf"),
+        (b"hello, registry", "registry:unsupported_type"),
+        (b"GIF89a" + b"\x00" * 16, "registry:unsupported_type"),
         (b"%PDF-1.7\n" + b"\x00" * 64, "registry:broken_pdf"),
         (make_pdf(31), "registry:too_many_pages"),
         (make_pdf(2, user_password="secret"), "registry:encrypted_pdf"),
         (make_pdf(2, user_password="secret", owner_password="owner", algorithm="AES-256"), "registry:encrypted_pdf"),
         (make_pdf(31, owner_password="owner", algorithm="AES-256"), "registry:too_many_pages"),  # 푼 사본으로 센다
     ],
-    ids=["empty", "png", "broken", "31-pages", "user-password-rc4", "user-password-aes256", "owner-only-31-pages"],
+    ids=["empty", "text", "gif", "broken", "31-pages", "user-password-rc4", "user-password-aes256",
+         "owner-only-31-pages"],
 )
 def test_registry_rejections(data, reason):
     assert unsupported(uploads.validate_registry, data) == reason
@@ -1051,7 +1104,7 @@ def test_pdf_header_within_first_1024_bytes_is_accepted_and_sliced(offset):
 
 def test_pdf_header_past_first_1024_bytes_is_rejected():
     data = b"x" * 1020 + make_pdf(1)  # "%PDF-"가 1024바이트를 넘어 걸친다
-    assert unsupported(uploads.validate_registry, data) == "registry:not_pdf"
+    assert unsupported(uploads.validate_registry, data) == "registry:unsupported_type"
     assert unsupported(uploads.validate_contract, data) == "contract:unsupported_type"
     assert uploads.pdf_header_offset(b"x" * 1019 + b"%PDF-") == 1019
     assert uploads.pdf_header_offset(b"x" * 1020 + b"%PDF-") is None

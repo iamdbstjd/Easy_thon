@@ -10,6 +10,9 @@ import type {
   Counts,
   Evidence,
   ManualInput,
+  MarketDeal,
+  MarketInsight,
+  MarketStats,
   Report,
   RuleResult,
 } from '../api/types'
@@ -20,7 +23,7 @@ import { Grade } from '../components/Grade'
 import { ResultText } from '../components/ResultText'
 import { CHECKLIST_WHEN_ORDER, COUNT_LABEL, DOC_LABEL, LEVEL_LABEL, ruleNumber } from '../content/labels'
 import { HELP_LINKS, OFF_REGISTRY_ROWS, SPECIAL_TERMS_NOTE } from '../content/static'
-import { formatDate, isoToLocalInput } from '../lib/format'
+import { formatArea, formatDate, formatPeriod, formatWon, isoToLocalInput } from '../lib/format'
 import { keepTogether } from '../lib/keepTogether'
 import { maskPersonal } from '../lib/mask'
 import { useScreenFocus } from '../lib/useScreenFocus'
@@ -29,6 +32,7 @@ import { useScreenFocus } from '../lib/useScreenFocus'
 export function ReportScreen({
   report,
   request,
+  marketInsight = null,
   onEdit,
   onFillMissing,
   onRecheck,
@@ -37,6 +41,8 @@ export function ReportScreen({
 }: {
   report: Report
   request: CheckRequest | null
+  /** 실제 분석에서 찾은 실거래 (예시에는 없다). 1절 대조표 아래에 보여 준다 */
+  marketInsight?: MarketInsight | null
   onEdit: () => void
   /** 4절 아래 "잔금 전 재확인" → S6 (지금 계약서를 이어 쓴다) */
   onRecheck: () => void
@@ -67,11 +73,18 @@ export function ReportScreen({
   // 본문 절: 1 대조 → 2 위험 신호 → 3 요청서 → 4 일정 → 5 참고.
   // 내용이 없는 절은 빼고 번호를 다시 매긴다.
   const sections: { key: string; render: (n: number) => ReactNode }[] = []
-  if (report.comparison.length > 0) {
+  const deposit = request?.contract?.deposit ?? request?.manual.deposit ?? null
+  const monthlyRent = request?.contract?.monthly_rent ?? request?.manual.monthly_rent ?? null
+  const market = marketInsight ? (
+    <MarketBlock insight={marketInsight} deposit={deposit} monthlyRent={monthlyRent} />
+  ) : null
+  if (report.comparison.length > 0 || market) {
     sections.push({
       key: 'comparison',
       render: (n) => (
-        <Comparison number={n} rows={report.comparison} hasContract={!!request?.contract} />
+        <Comparison number={n} rows={report.comparison} hasContract={!!request?.contract}>
+          {market}
+        </Comparison>
       ),
     })
   }
@@ -298,19 +311,22 @@ function cellValue(value: string | null): ReactNode {
   return value ? keepTogether(maskPersonal(value)) : '—'
 }
 
-/** 1절: 계약서·등기부 대조표. 항목 | 계약서 | 등기부·시세 | 결과 */
+/** 1절: 계약서·등기부 대조표. 항목 | 계약서 | 등기부·시세 | 결과. 아래에 실거래(children)를 붙인다 */
 function Comparison({
   number,
   rows,
   hasContract,
+  children,
 }: {
   number: number
   rows: ComparisonRow[]
   hasContract: boolean
+  children?: ReactNode
 }) {
   return (
     <section className="doc-section" aria-labelledby="sec-compare">
       <h2 id="sec-compare">{number}. 계약서·등기부 대조</h2>
+      {rows.length > 0 && (
       <table className="cmp-table">
         <caption className="visually-hidden">계약서 값과 등기부·시세 값을 나란히 놓은 대조표</caption>
         <thead>
@@ -342,8 +358,177 @@ function Comparison({
           })}
         </tbody>
       </table>
+      )}
       {!hasContract && <p className="muted">계약서를 올리면 임대인·호수·특약을 대조할 수 있어요.</p>}
+      {children}
     </section>
+  )
+}
+
+const DEAL_KIND: Record<MarketDeal['kind'], string> = { sale: '매매', jeonse: '전세', monthly: '월세' }
+
+function scopeText(stats: MarketStats): string {
+  if (stats.scope === 'same_building') return `같은 건물 ${stats.count}건`
+  return stats.similar_area ? `같은 동 비슷한 면적 ${stats.count}건` : `같은 동 ${stats.count}건`
+}
+
+/** "2023-12 ~ 2026-11" → 36 (개월). 모르면 0 */
+function periodMonths(period: string | null): number {
+  const m = /(\d{4})-(\d{1,2})\s*~\s*(\d{4})-(\d{1,2})/.exec(period ?? '')
+  return m ? (Number(m[3]) - Number(m[1])) * 12 + Number(m[4]) - Number(m[2]) + 1 : 0
+}
+
+function statsText(stats: MarketStats): string {
+  const range = stats.count > 1 ? `, ${formatWon(stats.low)} ~ ${formatWon(stats.high)}` : ''
+  const months = periodMonths(stats.period)
+  const when = months > 12 ? ` · 최근 ${Math.round(months / 12)}년` : ''
+  const basis = stats.per_m2 ? '을 ㎡당 가격으로 이 집 면적에 맞춘' : ''
+  return `${scopeText(stats)}${basis} 중간값${range}${when}`
+}
+
+/** 이 집 보증금과 주변 중간값의 차이 (판단은 하지 않고 숫자만) */
+function gapText(deposit: number, median: number): string {
+  const diff = deposit - median
+  if (median <= 0 || Math.abs(diff) / median < 0.05) return '주변 중간값과 비슷해요'
+  const pct = Math.round((Math.abs(diff) / median) * 100)
+  return `주변 중간값보다 ${formatWon(Math.abs(diff))}(${pct}%) ${diff > 0 ? '높아요' : '낮아요'}`
+}
+
+function floorText(floor: string | null): string {
+  if (!floor) return ''
+  if (!/^-?\d+$/.test(floor)) return floor
+  const n = Number(floor)
+  return n < 0 ? `지하 ${-n}층` : `${n}층`
+}
+
+function dealAmount(deal: MarketDeal): string {
+  if (deal.kind === 'sale') return formatWon(deal.price)
+  if (deal.kind === 'jeonse') return formatWon(deal.deposit)
+  return `${formatWon(deal.deposit)} / 월 ${formatWon(deal.monthly_rent)}`
+}
+
+/**
+ * 1절 아래: 국토교통부 실거래로 본 시세와 보증금. 시세는 검사 입력에도 들어가 R5가 쓴다.
+ * 판단은 하지 않고, 이 집 보증금과 주변 중간값의 차이만 숫자로 보여 준다.
+ */
+function MarketBlock({
+  insight,
+  deposit,
+  monthlyRent,
+}: {
+  insight: MarketInsight
+  deposit: number | null
+  monthlyRent: number | null
+}) {
+  if (insight.status !== 'ok') {
+    return (
+      <div className="market-block">
+        <h3>실거래로 본 시세와 보증금</h3>
+        <p className="muted">{insight.message ?? '실거래 정보를 찾지 못했어요.'}</p>
+      </div>
+    )
+  }
+  const monthly = (monthlyRent ?? 0) > 0
+  const rent = monthly ? insight.monthly_deposit : insight.jeonse
+  const where = [insight.area_name, insight.housing_type, insight.period ? formatPeriod(insight.period) : null]
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    <div className="market-block">
+      <h3>실거래로 본 시세와 보증금</h3>
+      <p className="muted">{where} 국토교통부 실거래가</p>
+      <dl className="market-summary">
+        <div>
+          <dt>시세 (매매)</dt>
+          <dd>
+            {insight.sale ? (
+              <>
+                {formatWon(insight.sale.median)} <span className="muted">{statsText(insight.sale)}</span>
+              </>
+            ) : (
+              <span className="muted">{insight.housing_type === '단독다가구' ? '건물 단위 거래라 보지 않아요' : '찾지 못했어요'}</span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>{monthly ? '주변 월세 보증금' : '주변 전세 보증금'}</dt>
+          <dd>
+            {rent ? (
+              <>
+                {formatWon(rent.median)} <span className="muted">{statsText(rent)}</span>
+              </>
+            ) : (
+              <span className="muted">찾지 못했어요</span>
+            )}
+          </dd>
+        </div>
+        {monthly && insight.monthly_rent && (
+          <div>
+            <dt>주변 월세</dt>
+            <dd>
+              월 {formatWon(insight.monthly_rent.median)} <span className="muted">중간값</span>
+            </dd>
+          </div>
+        )}
+        {/* 전세는 보증금끼리 비교한다. 월세는 보증금과 월세를 함께 봐야 해서 나란히 두기만 한다 */}
+        {!monthly && deposit !== null && deposit > 0 && rent && (
+          <div>
+            <dt>이 집 보증금</dt>
+            <dd>
+              {formatWon(deposit)} <span className="muted">{gapText(deposit, rent.median)}</span>
+            </dd>
+          </div>
+        )}
+        {monthly && deposit !== null && deposit > 0 && (
+          <div>
+            <dt>이 집</dt>
+            <dd>
+              보증금 {formatWon(deposit)} / 월 {formatWon(monthlyRent)}
+            </dd>
+          </div>
+        )}
+      </dl>
+      {insight.deals.length > 0 && (
+        <div className="table-scroll">
+          <table className="deal-table">
+            <caption className="visually-hidden">찾은 실거래 (같은 건물 먼저, 최근 순)</caption>
+            <thead>
+              <tr>
+                <th scope="col">계약일</th>
+                <th scope="col">구분</th>
+                <th scope="col">건물</th>
+                <th scope="col">층·면적</th>
+                <th scope="col" className="num">
+                  금액
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {insight.deals.map((deal, i) => (
+                <tr key={`${deal.kind}-${deal.date}-${i}`}>
+                  <td>{formatDate(deal.date)}</td>
+                  <td>
+                    {DEAL_KIND[deal.kind]}
+                    {deal.contract_type === '갱신' ? ' (갱신)' : ''}
+                  </td>
+                  <td>
+                    {deal.name ?? '—'}
+                    {deal.same_building && <span className="tag">같은 건물</span>}
+                  </td>
+                  <td>{[floorText(deal.floor), formatArea(deal.area_m2)].filter(Boolean).join(' · ')}</td>
+                  <td className="num">{dealAmount(deal)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {insight.notes.map((note) => (
+        <p key={note} className="muted mt-1">
+          {note}
+        </p>
+      ))}
+    </div>
   )
 }
 

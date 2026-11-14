@@ -24,7 +24,10 @@ import type {
   ExtractResponse,
   Level,
   ManualInput,
+  MarketDeal,
+  MarketInsight,
   MarketPrice,
+  MarketStats,
   Report,
   RegistryExtract,
   RuleChange,
@@ -418,5 +421,69 @@ export function normCompareReport(raw: unknown): CompareReport {
       return { field: str(x.field) ?? '', before: str(x.before), after: str(x.after) }
     }),
     disclaimer: str(v.disclaimer) ?? '',
+  }
+}
+
+// ---------------------------------------------------------------------------
+// /api/market
+// ---------------------------------------------------------------------------
+
+const SCOPES = ['same_building', 'same_dong'] as const
+const HOUSING_TYPES = ['아파트', '연립다세대', '오피스텔', '단독다가구'] as const
+
+function normMarketStats(raw: unknown): MarketStats | null {
+  const v = obj(raw)
+  const scope = oneOf(v.scope, SCOPES)
+  const median = num(v.median)
+  if (!scope || median === null) return null
+  return {
+    scope,
+    similar_area: bool(v.similar_area, true),
+    per_m2: bool(v.per_m2, false),
+    period: str(v.period),
+    count: num(v.count) ?? 0,
+    median,
+    low: num(v.low) ?? median,
+    high: num(v.high) ?? median,
+  }
+}
+
+function normMarketDeal(raw: unknown): MarketDeal | null {
+  const v = obj(raw)
+  const kind = oneOf(v.kind, ['sale', 'jeonse', 'monthly'] as const)
+  const date = str(v.date)
+  if (!kind || !date) return null
+  return {
+    kind,
+    date,
+    name: str(v.name),
+    floor: str(v.floor),
+    area_m2: num(v.area_m2),
+    price: num(v.price),
+    deposit: num(v.deposit),
+    monthly_rent: num(v.monthly_rent),
+    contract_type: str(v.contract_type),
+    same_building: bool(v.same_building, false),
+  }
+}
+
+/** 응답이 이상하면 "불러오지 못함"으로 본다 (검사는 그대로 진행한다) */
+export function normMarketInsight(raw: unknown): MarketInsight {
+  const v = obj(raw)
+  return {
+    status: oneOf(v.status, ['ok', 'no_deals', 'unavailable'] as const) ?? 'unavailable',
+    message: str(v.message),
+    housing_type: oneOf(v.housing_type, HOUSING_TYPES),
+    area_name: str(v.area_name),
+    period: str(v.period),
+    market: normMarket(v.market),
+    sale: normMarketStats(v.sale),
+    jeonse: normMarketStats(v.jeonse),
+    monthly_deposit: normMarketStats(v.monthly_deposit),
+    monthly_rent: normMarketStats(v.monthly_rent),
+    deals: list(v.deals)
+      .map(normMarketDeal)
+      .filter((d): d is MarketDeal => d !== null),
+    notes: strList(v.notes),
   }
 }

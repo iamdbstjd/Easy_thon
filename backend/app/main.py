@@ -13,7 +13,7 @@ import uuid
 import weakref
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Awaitable, Callable, Optional, TypeVar
+from typing import Awaitable, Callable, Optional, TypeVar, Union
 
 from app import config
 
@@ -31,6 +31,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa
 from starlette.formparsers import MultiPartParser  # noqa: E402
 
 from app import extract, ics, pdf_sandbox, privacy, uploads  # noqa: E402
+from app import market as market_api  # noqa: E402
 from app.errors import DOCUMENTS, ApiError, api_error_handler, api_error_response, error_response  # noqa: E402
 from app.rules import build_report  # noqa: E402
 from app.schemas import (  # noqa: E402
@@ -42,6 +43,7 @@ from app.schemas import (  # noqa: E402
     ExtractResponse,
     HealthResponse,
     IcsRequest,
+    MarketInsight,
     RecheckReport,
     RecheckRequest,
     Report,
@@ -56,11 +58,11 @@ RECHECK_DEMO = "recheck-A"  # 계약 후 재확인 예시
 COMPARE_DEMO = "compare-C"  # 수정 전·후 비교 예시
 CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]  # 개발용 (Vite)
 EXTRACT_PATH = "/api/extract"
-EXTRACT_CONTRACT_PATH = "/api/extract/contract"  # 수정된 계약서 하나만
+EXTRACT_CONTRACT_PATH = "/api/extract/contract"  # 수정된 계약서만
 # 업로드 경로별 요청 본문 상한. 넘으면 본문을 더 읽지 않고 UNSUPPORTED_FILE.
 UPLOAD_REQUEST_LIMITS = {
     EXTRACT_PATH: uploads.MAX_REQUEST_BYTES,
-    EXTRACT_CONTRACT_PATH: uploads.MAX_SINGLE_FILE_REQUEST_BYTES,
+    EXTRACT_CONTRACT_PATH: uploads.MAX_REQUEST_BYTES,
 }
 # 그 밖의 본문(JSON) 상한. 화면이 보내는 검사 입력은 수십 KB다. 넘으면 413.
 JSON_REQUEST_LIMIT = 1024 * 1024
@@ -83,8 +85,8 @@ STARTED_AT = "started_at"  # scope["state"]에 넣는 요청 시작 시각 (이�
 UPLOAD_SLOT = "release_upload_slot"  # scope["state"]에 넣는 업로드 자리 반납 함수
 
 # multipart 파일을 디스크 임시 파일로 넘기지 않고 메모리에 둔다.
-# /api/extract 본문은 RequestContextMiddleware가 MAX_REQUEST_BYTES까지만 읽으므로
-# 파일 하나도 이 크기를 넘을 수 없고, 메모리 사용도 그 안이다.
+# 업로드 본문은 RequestContextMiddleware가 MAX_REQUEST_BYTES까지만 읽으므로
+# 파일들을 합쳐도 이 크기를 넘을 수 없고, 메모리 사용도 그 안이다.
 MultiPartParser.spool_max_size = uploads.MAX_REQUEST_BYTES
 
 T = TypeVar("T")
@@ -353,7 +355,7 @@ async def lifespan(app: FastAPI):
         ai["provider"],
         ai["model"],
         ai["effort"],
-        False,
+        market_api.ready(),
         extract.deadline_seconds(),
         UPLOAD_SLOTS,
         AI_SLOTS,
@@ -493,6 +495,23 @@ def _is_blank(upload: UploadFile) -> bool:
     return not upload.filename and not upload.size
 
 
+# 업로드 칸 하나. 파일을 고르지 않은 칸은 Starlette가 빈 문자열("")로 넘긴다.
+FilePart = Union[UploadFile, str]
+
+
+async def _read_uploads(doc: str, parts: Optional[list[FilePart]]) -> list[bytes]:
+    """한 서류의 파일들을 올린 순서대로 읽는다. 빈 칸은 건너뛰고, 파일이 아닌 값은 UNSUPPORTED_FILE."""
+    files: list[bytes] = []
+    for part in parts or []:
+        if isinstance(part, str):
+            if part == "":
+                continue
+            raise ApiError("UNSUPPORTED_FILE", reason=f"{doc}:not_a_file")
+        if not _is_blank(part):
+            files.append(await _read_upload(part))
+    return files
+
+
 @app.post(
     "/api/extract",
     response_model=ExtractResponse,
@@ -500,20 +519,29 @@ def _is_blank(upload: UploadFile) -> bool:
 )
 async def extract_route(
     request: Request,
-    registry: UploadFile = File(..., description="등기부등본 PDF (필수, 10MB·30쪽 이하)"),
-    contract: Optional[UploadFile] = File(None, description="계약서 사진(JPG·PNG·WEBP) 또는 PDF (선택, 10MB 이하)"),
+    registry: list[FilePart] = File(
+        ..., description="등기부등본 PDF나 사진(JPG·PNG·WEBP). 필수, 여러 개면 올린 순서대로 한 등기부로 읽는다"
+    ),
+    contract: Optional[list[FilePart]] = File(
+        None, description="계약서 사진이나 PDF. 선택, 여러 개면 올린 순서대로 한 계약서로 읽는다"
+    ),
 ) -> ExtractResponse:
     """등기부(필수)와 계약서(선택)를 AI로 읽어 8.1·8.2 형식으로 돌려준다. 파일은 저장하지 않는다.
 
+    서류마다 파일 10개, 쪽 수 합계 30쪽(사진 한 장은 한 쪽), 파일 하나 10MB, 전체 20MB까지 받는다.
     응답의 모든 문자열에서 주민등록번호 모양은 "******-*******"로 가린다.
     """
-    registry_doc = await run_in_threadpool(uploads.validate_registry, await _read_upload(registry))
-    contract_doc = None
-    if contract is not None and not _is_blank(contract):
-        contract_doc = await run_in_threadpool(uploads.validate_contract, await _read_upload(contract))
+    registry_data = await _read_uploads("registry", registry)
+    contract_data = await _read_uploads("contract", contract)
+    uploads.check_total_size(registry_data + contract_data)
+    registry_docs = await run_in_threadpool(uploads.validate_files, "registry", registry_data)
+    contract_docs = None
+    if contract_data:
+        contract_docs = await run_in_threadpool(uploads.validate_files, "contract", contract_data)
+    del registry_data, contract_data
     started_at = request_started_at(request)
     result = await _extract_with_ai_slot(
-        request, lambda: extract.extract_documents(registry_doc, contract_doc, started_at=started_at)
+        request, lambda: extract.extract_documents(registry_docs, contract_docs, started_at=started_at)
     )
     return privacy.mask_resident_ids(result)
 
@@ -525,25 +553,29 @@ async def extract_route(
 )
 async def extract_contract_route(
     request: Request,
-    contract: UploadFile = File(..., description="수정된 계약서 사진(JPG·PNG·WEBP) 또는 PDF (10MB 이하)"),
+    contract: list[FilePart] = File(
+        ..., description="수정된 계약서 사진(JPG·PNG·WEBP)이나 PDF. 여러 개면 올린 순서대로 한 계약서로 읽는다"
+    ),
 ) -> ContractExtract:
-    """수정된 계약서 하나만 읽는다. 검사·호출·마감·오류·주민등록번호 가림은 /api/extract와 같다."""
-    contract_doc = await run_in_threadpool(uploads.validate_contract, await _read_upload(contract))
+    """수정된 계약서만 읽는다. 검사·상한·호출·마감·오류·주민등록번호 가림은 /api/extract와 같다."""
+    contract_data = await _read_uploads("contract", contract)
+    uploads.check_total_size(contract_data)
+    contract_docs = await run_in_threadpool(uploads.validate_files, "contract", contract_data)
+    del contract_data
     started_at = request_started_at(request)
     result = await _extract_with_ai_slot(
-        request, lambda: extract.extract_contract_only(contract_doc, started_at=started_at)
+        request, lambda: extract.extract_contract_only(contract_docs, started_at=started_at)
     )
     return privacy.mask_resident_ids(result)
 
 
 def fill_public_data(req: CheckRequest) -> CheckRequest:
-    """TODO: 비어 있는 building·market을 공공 API로 채운다. 지금은 그대로 돌려준다.
+    """TODO: 비어 있는 building을 건축물대장 API로 채운다. 지금은 그대로 돌려준다.
 
-    - 등기부 주소 → 도로명주소 API(법정동코드·지번) → 건축물대장 API(용도, 위반 여부) → building
-    - 실거래가 API → market
+    - 시세(market)는 여기서 채우지 않는다. 화면이 /api/market으로 미리 찾아 검사 입력에 넣는다
+      (사용자가 값을 보고 고칠 수 있게, 그리고 /api/check가 밖으로 부르지 않게).
+    - 등기부 주소 → 법정동코드·지번 → 건축물대장 API(용도, 위반 여부) → building
     - 호출당 타임아웃 5초. 실패하면 비워 둔다 (해당 규칙만 ⚪, 오류로 처리하지 않는다).
-    - 같은 (시군구코드, 계약년월) 응답은 메모리에 캐시한다.
-    - 구현하면 /api/health의 public_api_ready도 키 설정 여부로 바꾼다.
     """
     return req
 
@@ -646,7 +678,20 @@ def demo_route(scenario: str) -> CheckRequest:
 
 @app.get("/api/health", response_model=HealthResponse)
 def health_route() -> HealthResponse:
-    return HealthResponse(ai_ready=extract.has_credentials(), public_api_ready=False)
+    return HealthResponse(ai_ready=extract.has_credentials(), public_api_ready=market_api.ready())
+
+
+@app.post("/api/market", response_model=MarketInsight)
+async def market_route(req: CheckRequest) -> MarketInsight:
+    """국토교통부 실거래가로 시세(검사 입력의 market)와 주변 보증금을 찾는다. AI를 부르지 않는다.
+
+    - 입력은 /api/check와 같다. 등기부 주소·종류·면적과 계약 종류만 쓴다.
+    - 주소 API에는 '시도 시군구 읍면동'까지만, 실거래 API에는 시군구 코드와 연월만 보낸다.
+    - 예시(mode=demo)는 밖으로 부르지 않는다. 실패해도 200과 status·message로 알린다 (검사를 막지 않는다).
+    """
+    if req.mode == "demo":
+        return MarketInsight(status="unavailable", message="예시에서는 실거래를 찾지 않아요.")
+    return await market_api.lookup(req, req.today or today_kst())
 
 
 @app.post(

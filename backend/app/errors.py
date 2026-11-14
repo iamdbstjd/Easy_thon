@@ -20,7 +20,7 @@ logger = logging.getLogger("app.errors")
 
 # 사용자에게 보여 줄 오류 문구
 ERROR_MESSAGES: dict[str, str] = {
-    "UNSUPPORTED_FILE": "등기부는 PDF, 계약서는 사진이나 PDF로 10MB 이하만 올릴 수 있어요.",
+    "UNSUPPORTED_FILE": "PDF나 사진(JPG·PNG)만, 파일 하나 10MB·서류마다 30쪽 이하로 올릴 수 있어요.",
     "NOT_REGISTRY": "등기부등본이 아닌 것 같아요. 인터넷등기소에서 받은 PDF를 올려주세요.",
     "LAND_REGISTRY": "토지 등기부예요. 건물(또는 집합건물) 등기부를 올려주세요.",
     "NOT_CONTRACT": "임대차 계약서가 아닌 것 같아요.",

@@ -1,17 +1,26 @@
-// 업로드 파일 확인과 계약서 사진 줄이기
+// 업로드 파일 확인과 사진 줄이기 (등기부·계약서 공통)
+// 서버 상한(backend/app/uploads.py)과 같은 값을 쓴다.
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024
+/** 서류(등기부·계약서)마다 파일 수 */
+export const MAX_FILES = 10
+/** 한 번에 보내는 파일 전체 (등기부 + 계약서) */
+export const MAX_TOTAL_BYTES = 20 * 1024 * 1024
 const LONG_EDGE_PX = 1600
 export const JPEG_QUALITY = 0.9
 
-const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+/** 파일 고르기 창에 보여 줄 형식: PDF와 브라우저가 열 수 있는 사진 (휴대폰에서는 카메라도) */
+export const UPLOAD_ACCEPT = 'application/pdf,.pdf,image/*,.heic,.heif'
+
+export type DocKind = 'registry' | 'contract'
 
 export function isPdfFile(file: File): boolean {
   return file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
 }
 
+/** 사진으로 보이는 파일 (형식은 따지지 않는다. 열 수 있는지는 줄이면서 확인한다) */
 export function isImageFile(file: File): boolean {
-  return IMAGE_TYPES.includes(file.type) || /\.(jpe?g|png|webp)$/i.test(file.name)
+  return file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif|tiff?)$/i.test(file.name)
 }
 
 /** 파일 앞부분에 PDF 머리글(%PDF-)이 있는지 본다. 확장자만 바꾼 파일을 걸러낸다. */
@@ -54,10 +63,10 @@ export async function decodeImage(file: File): Promise<Decoded> {
 }
 
 /**
- * 계약서 사진을 긴 변 1,600px 이하로 줄이고 JPEG(품질 0.9)로 다시 저장한다.
+ * 사진을 긴 변 1,600px 이하로 줄이고 JPEG(품질 0.9)로 다시 저장한다. PNG·WEBP·HEIC 등도 JPEG가 된다.
  * 더 작은 사진은 키우지 않는다. 다시 저장하면서 사진의 위치 정보 같은 메타데이터도 빠진다.
  */
-export async function resizeContractPhoto(file: File): Promise<File> {
+export async function resizePhoto(file: File): Promise<File> {
   const image = await decodeImage(file)
   try {
     const scale = Math.min(1, LONG_EDGE_PX / Math.max(image.width, image.height))
@@ -80,7 +89,7 @@ export async function resizeContractPhoto(file: File): Promise<File> {
       canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY),
     )
     if (!blob) throw new Error('jpeg encoding failed')
-    const base = file.name.replace(/\.[^.]+$/, '') || 'contract'
+    const base = file.name.replace(/\.[^.]+$/, '') || 'photo'
     return new File([blob], `${base}.jpg`, { type: 'image/jpeg', lastModified: Date.now() })
   } finally {
     image.release()
@@ -88,35 +97,40 @@ export async function resizeContractPhoto(file: File): Promise<File> {
 }
 
 const TOO_BIG = '10MB 이하 파일만 올릴 수 있어요.'
+const DOC_NAME: Record<DocKind, string> = { registry: '등기부', contract: '계약서' }
 
-/** 등기부 PDF 확인 (S2·S6). 문제가 있으면 화면에 보여줄 문장, 없으면 null */
-export async function checkRegistryFile(file: File): Promise<string | null> {
-  if (!isPdfFile(file)) return '등기부는 PDF 파일만 올릴 수 있어요.'
-  if (file.size > MAX_FILE_BYTES) {
-    return `${TOO_BIG} 인터넷등기소에서 '현재 유효사항'으로 다시 열람해 보세요.`
-  }
-  if (!(await hasPdfHeader(file))) {
-    return 'PDF 파일이 아닌 것 같아요. 인터넷등기소에서 저장한 PDF를 올려주세요.'
-  }
-  return null
-}
+export type PreparedFile = { file: File; kind: 'pdf' | 'photo' }
 
 /**
- * 계약서 파일 준비 (S2·S6). PDF는 그대로 보내고(크기·머리글만 확인),
- * 사진은 먼저 줄여서 다시 저장한 뒤 줄인 파일로 10MB를 확인한다.
+ * 올릴 파일 하나 준비 (등기부·계약서 공통). PDF는 그대로 보내고(크기·머리글만 확인),
+ * 사진은 형식과 상관없이 먼저 줄여서 JPEG로 다시 저장한 뒤 줄인 파일로 10MB를 확인한다.
+ * 문제가 있으면 화면에 보여 줄 문장을 돌려준다.
  */
-export async function prepareContractFile(file: File): Promise<{ file: File } | { error: string }> {
+export async function prepareUploadFile(file: File, doc: DocKind): Promise<PreparedFile | { error: string }> {
   if (isPdfFile(file)) {
-    if (file.size > MAX_FILE_BYTES) return { error: TOO_BIG }
+    if (file.size > MAX_FILE_BYTES) {
+      return {
+        error: doc === 'registry' ? `${TOO_BIG} 인터넷등기소에서 '현재 유효사항'으로 다시 열람해 보세요.` : TOO_BIG,
+      }
+    }
     if (!(await hasPdfHeader(file))) return { error: 'PDF 파일이 아닌 것 같아요. 다른 파일을 골라 주세요.' }
-    return { file }
+    return { file, kind: 'pdf' }
   }
-  if (!isImageFile(file)) return { error: '계약서는 사진(JPG·PNG·WEBP)이나 PDF만 올릴 수 있어요.' }
+  if (!isImageFile(file)) return { error: `${DOC_NAME[doc]}는 PDF나 사진(JPG·PNG 등)만 올릴 수 있어요.` }
   try {
-    const resized = await resizeContractPhoto(file)
+    const resized = await resizePhoto(file)
     if (resized.size > MAX_FILE_BYTES) return { error: TOO_BIG }
-    return { file: resized }
+    return { file: resized, kind: 'photo' }
   } catch {
-    return { error: '사진을 열지 못했어요. 다른 사진을 골라 주세요.' }
+    return { error: '사진을 열지 못했어요. JPG나 PNG로 바꿔서 올려 주세요.' }
   }
+}
+
+/** 고른 파일들을 이름 순서로 (page2가 page10보다 앞). 쪽마다 찍은 사진을 한 번에 고르는 경우를 위해서다 */
+export function byFileName(files: File[]): File[] {
+  return [...files].sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true, sensitivity: 'base' }))
+}
+
+export function totalBytes(files: File[]): number {
+  return files.reduce((sum, f) => sum + f.size, 0)
 }

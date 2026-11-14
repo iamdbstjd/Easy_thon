@@ -396,6 +396,61 @@ export interface HealthResponse {
   public_api_ready: boolean
 }
 
+// ---------------------------------------------------------------------------
+// /api/market: 국토교통부 실거래로 본 시세와 주변 보증금
+// ---------------------------------------------------------------------------
+
+export type MarketScope = 'same_building' | 'same_dong'
+export type HousingType = '아파트' | '연립다세대' | '오피스텔' | '단독다가구'
+
+/** 실거래 묶음 요약 (원) */
+export interface MarketStats {
+  scope: MarketScope
+  /** 면적이 비슷한 거래만 골랐는지 (면적을 모르거나 단독·다가구면 false) */
+  similar_area: boolean
+  /** ㎡당 가격으로 이 집 면적에 맞춘 추정 (같은 동 거래가 적을 때, 매매만) */
+  per_m2: boolean
+  /** 고른 거래의 기간 "2023-12 ~ 2026-11" (모자라면 최근 3년까지 넓힌다) */
+  period: string | null
+  count: number
+  median: number
+  low: number
+  high: number
+}
+
+/** 실거래 한 건. 동·호수는 공개되지 않는다 */
+export interface MarketDeal {
+  kind: 'sale' | 'jeonse' | 'monthly'
+  date: ISODate
+  name: string | null
+  floor: string | null
+  area_m2: number | null
+  price: number | null
+  deposit: number | null
+  monthly_rent: number | null
+  /** 신규·갱신 */
+  contract_type: string | null
+  same_building: boolean
+}
+
+export interface MarketInsight {
+  status: 'ok' | 'no_deals' | 'unavailable'
+  message: string | null
+  housing_type: HousingType | null
+  /** "용인시 수지구 죽전동" */
+  area_name: string | null
+  /** "2025-12 ~ 2026-11" */
+  period: string | null
+  /** 검사 입력의 market 칸에 넣을 시세 (매매 중간값) */
+  market: MarketPrice | null
+  sale: MarketStats | null
+  jeonse: MarketStats | null
+  monthly_deposit: MarketStats | null
+  monthly_rent: MarketStats | null
+  deals: MarketDeal[]
+  notes: string[]
+}
+
 /** /api/checklist.ics 입력 */
 export interface IcsRequest {
   checklist: ChecklistItem[]

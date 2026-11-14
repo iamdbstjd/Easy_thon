@@ -813,7 +813,7 @@ def test_unknown_path_and_wrong_method_use_standard_shape(client):
 
 def test_file_errors_say_which_document(client, monkeypatch):
     install_ai(monkeypatch)
-    assert_error(client.post("/api/extract", files=registry_file(PNG)), 400, "UNSUPPORTED_FILE", document="registry")
+    assert_error(client.post("/api/extract", files=registry_file(b"GIF89a" + b"\x00" * 32)), 400, "UNSUPPORTED_FILE", document="registry")
     gif = {**registry_file(), "contract": ("c.gif", b"GIF89a" + b"\x00" * 32, "image/gif")}
     assert_error(client.post("/api/extract", files=gif), 400, "UNSUPPORTED_FILE", document="contract")
     assert_error(client.post("/api/extract"), 400, "UNSUPPORTED_FILE", document="registry")  # 등기부 칸이 없다

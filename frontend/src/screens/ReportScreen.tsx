@@ -80,11 +80,17 @@ export function ReportScreen({
   }
   // 같은 검토서는 PDF를 한 번만 만든다 (메모리에만 둔다)
   const pdfCache = useRef<{ key: unknown[]; file: File } | null>(null)
+  const pdfKey = [report, request, marketInsight]
+  /** 이미 만든 이 검토서의 PDF (없으면 null). 공유창을 누른 그 순간에 바로 열 때 쓴다 */
+  function readyPdf(): File | null {
+    const cached = pdfCache.current
+    return cached && cached.key.every((v, i) => v === pdfKey[i]) ? cached.file : null
+  }
   /** 검토서 전체를 PDF 파일로 (lib/reportPdf.ts) */
   async function makePdf(): Promise<File> {
-    const key = [report, request, marketInsight]
-    const cached = pdfCache.current
-    if (cached && cached.key.every((v, i) => v === key[i])) return cached.file
+    const ready = readyPdf()
+    if (ready) return ready
+    const key = pdfKey
     const source = document.querySelector<HTMLElement>('main.page')
     if (!source) throw new Error('report not on screen')
     const file = await reportPdf(source, {
@@ -328,7 +334,7 @@ export function ReportScreen({
               <p className={`verdict verdict-${overall.level}`}>{overall.title}</p>
               {overall.message && <p>{overall.message}</p>}
               <CountsLine counts={counts} />
-              <ShareActions getText={shareBody} makePdf={makePdf} onPrint={onPrint} />
+              <ShareActions getText={shareBody} readyPdf={readyPdf} makePdf={makePdf} onPrint={onPrint} />
               {missingOnly && (
                 <p>
                   <button
@@ -382,7 +388,7 @@ export function ReportScreen({
         ))}
       </ul>
 
-      <ShareActions getText={shareBody} makePdf={makePdf} onPrint={onPrint} />
+      <ShareActions getText={shareBody} readyPdf={readyPdf} makePdf={makePdf} onPrint={onPrint} />
 
       <div className="actions">
         <button type="button" className="btn-primary" onClick={onEdit}>
@@ -399,34 +405,76 @@ export function ReportScreen({
 /**
  * 검토서 보내기 한 줄 (검토서 위·아래에 둔다). 알림은 누른 줄에만 뜬다.
  * 휴대폰: PDF로 공유하기(공유창으로 카톡·메일) · 요약 글 공유하기
- * 컴퓨터: PDF 내려받기 · 요약 글 공유하기 · 메일로 보내기 · 인쇄하기
+ * 컴퓨터: PDF 내려받기 · 요약 글 공유하기 · 메일로 보내기(메일 앱 + 첨부할 PDF 내려받기) · 인쇄하기
  */
 function ShareActions({
   getText,
+  readyPdf,
   makePdf,
   onPrint,
 }: {
   getText: () => string
+  readyPdf: () => File | null
   makePdf: () => Promise<File>
   onPrint: () => void
 }) {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
+  // 파일을 만드는 사이 브라우저가 공유창을 막았다: 버튼을 '만든 PDF 보내기'로 바꿔 한 번 더 누르게 한다
+  const [blocked, setBlocked] = useState(false)
   const sendsFiles = canShareFiles()
 
   async function onPdf() {
+    // 이미 만든 파일이면 기다리지 않고 바로 공유창을 연다 (휴대폰은 누른 바로 그때만 공유창을 허락한다)
+    const ready = readyPdf()
+    if (ready) {
+      await send(ready)
+      return
+    }
     setBusy(true)
     setNote('PDF를 만들고 있어요…')
     let file: File
     try {
       file = await makePdf()
-    } catch {
-      setNote('PDF를 만들지 못했어요. 잠시 뒤 다시 눌러 보세요.')
+    } catch (err) {
+      setNote(
+        isStaleChunk(err)
+          ? '화면이 새 버전으로 바뀌어서 PDF를 만들지 못했어요. 새로고침한 뒤 다시 검사해 주세요.'
+          : 'PDF를 만들지 못했어요. 잠시 뒤 다시 눌러 보세요.',
+      )
       return
     } finally {
       setBusy(false)
     }
+    await send(file)
+  }
+
+  /** 메일로 보내기 (컴퓨터): 메일 앱은 mailto 링크가 열고, 첨부할 검토서 PDF를 같이 내려받는다 */
+  async function onMail() {
+    let file = readyPdf()
+    if (!file) {
+      setBusy(true)
+      setNote('메일 앱을 열고, 첨부할 PDF를 만들고 있어요…')
+      try {
+        file = await makePdf()
+      } catch (err) {
+        setNote(
+          isStaleChunk(err)
+            ? '화면이 새 버전으로 바뀌어서 PDF를 만들지 못했어요. 새로고침한 뒤 다시 검사해 주세요.'
+            : 'PDF를 만들지 못했어요. 메일에는 요약 글만 들어가요.',
+        )
+        return
+      } finally {
+        setBusy(false)
+      }
+    }
+    downloadFile(file)
+    setNote('검토서 PDF를 내려받았어요. 열린 메일에 첨부해 보내세요.')
+  }
+
+  async function send(file: File) {
     const result = sendsFiles ? await shareFile(file) : 'failed'
+    setBlocked(result === 'blocked')
     if (result === 'failed') {
       downloadFile(file)
       setNote('PDF를 내려받았어요. 카톡이나 메일에 첨부해 보내세요.')
@@ -449,14 +497,15 @@ function ShareActions({
   return (
     <p className="share-line">
       <button type="button" className="link" disabled={busy} onClick={onPdf}>
-        {sendsFiles ? 'PDF로 공유하기' : 'PDF 내려받기'}
+        {blocked ? '만든 PDF 보내기' : sendsFiles ? 'PDF로 공유하기' : 'PDF 내려받기'}
       </button>
       <button type="button" className="link" onClick={onText}>
         요약 글 공유하기
       </button>
       {!sendsFiles && (
         <>
-          <a className="link" href={mailtoHref(getText())}>
+          {/* 링크가 메일 앱을 바로 열고(누른 그 순간이라 막히지 않는다), PDF는 그 뒤에 만들어 내려받는다 */}
+          <a className="link" href={mailtoHref(getText())} onClick={() => void onMail()}>
             메일로 보내기
           </a>
           <button type="button" className="link" onClick={onPrint}>
@@ -469,6 +518,12 @@ function ShareActions({
       </span>
     </p>
   )
+}
+
+/** 배포로 화면 파일 이름이 바뀌어 예전 화면이 새 조각 파일을 못 받은 경우 */
+function isStaleChunk(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return /dynamically imported module|module script failed|error loading dynamically|Loading chunk|Failed to fetch/i.test(message)
 }
 
 /** 대조표 값: 없으면 "—", 주민등록번호 모양은 가리고 지번은 한 줄로 묶는다 */

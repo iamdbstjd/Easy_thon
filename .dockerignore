@@ -1,0 +1,16 @@
+# 비밀 값과 개인 자료는 이미지에 넣지 않는다
+.env
+**/.env
+demo-docs/
+presentation/
+PRD.md
+PLAN.md
+# 빌드 결과·의존성·캐시
+.git
+**/node_modules
+frontend/dist
+backend/.venv
+**/__pycache__
+**/.pytest_cache
+screenshots/
+assets/

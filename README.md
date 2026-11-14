@@ -137,6 +137,20 @@ npm run dev        # http://localhost:5173
 | `AI_PROVIDER` | 두 키가 다 있을 때 쓸 쪽 (`openai` 또는 `anthropic`). 없으면 OpenAI |
 | `EXTRACT_DEADLINE_SECONDS` | 서류 읽기 전체 제한 시간. 기본 85초 (화면이 90초에 포기하므로 그보다 짧게) |
 
+## 배포
+
+화면과 서버를 컨테이너 하나로 묶는다. 서버가 `/api`와 빌드한 화면(`/`)을 같은 주소에서 내준다 (`SERVE_FRONTEND=1`).
+
+```bash
+docker build -t jachwibang .
+docker run -p 8000:8000 -e OPENAI_API_KEY=... -e DATA_GO_KR_SERVICE_KEY=... -e JUSO_API_KEY=... jachwibang
+```
+
+- **Render**: New → Blueprint → 이 저장소를 고르면 `render.yaml` 설정(무료, Docker)으로 만들어진다. API 키 3개는 그때 Render 화면에 넣는다.
+- API 키는 이미지와 저장소에 넣지 않는다 (`.dockerignore`가 `.env`를 뺀다).
+- 컨테이너에서는 같은 IP의 서류 읽기를 시간당 20번, 시세 찾기를 60번까지만 받는다 (`RATE_LIMIT=1`, OpenAI 비용·남용 방지). 넘으면 429.
+- 무료 Render는 15분 동안 요청이 없으면 잠들고, 다음 첫 요청에 1분 가까이 걸린다.
+
 ## API
 
 | 메서드 | 경로 | 설명 |

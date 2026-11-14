@@ -6,11 +6,13 @@ API 키 없이도 /api/health, /api/demo, /api/check, /api/checklist.ics는 동�
 
 import asyncio
 import datetime as dt
+import os
 import re
 import time
 import traceback
 import uuid
 import weakref
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Awaitable, Callable, Optional, TypeVar, Union
@@ -29,6 +31,7 @@ from starlette.concurrency import run_in_threadpool  # noqa: E402
 from starlette.datastructures import MutableHeaders  # noqa: E402
 from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa: E402
 from starlette.formparsers import MultiPartParser  # noqa: E402
+from starlette.staticfiles import StaticFiles  # noqa: E402
 
 from app import extract, ics, pdf_sandbox, privacy, uploads  # noqa: E402
 from app import market as market_api  # noqa: E402
@@ -82,6 +85,15 @@ AI_SLOTS = 4
 DISCONNECT_POLL_SECONDS = 0.5  # 추출 중 클라이언트 연결 끊김을 확인하는 간격
 MAX_VALIDATION_ERRORS = 20  # 422 응답에 담는 오류 수
 STARTED_AT = "started_at"  # scope["state"]에 넣는 요청 시작 시각 (이벤트 루프 시각)
+# 공개 배포에서 같은 IP가 짧은 시간에 서류 읽기를 너무 많이 하지 못하게 한다 (OpenAI 비용·남용 방지).
+# 환경변수 RATE_LIMIT=1일 때만 켠다 (Dockerfile). 개발·테스트에서는 꺼져 있다.
+# 묶음 이름 → (경로들, 시간당 횟수). 본문을 읽기 전에 거절한다.
+RATE_LIMITS = {
+    "extract": ((EXTRACT_PATH, EXTRACT_CONTRACT_PATH), 20),
+    "market": (("/api/market",), 60),
+}
+RATE_WINDOW_SECONDS = 3600.0
+_rate_hits: dict[tuple[str, str], deque] = {}
 UPLOAD_SLOT = "release_upload_slot"  # scope["state"]에 넣는 업로드 자리 반납 함수
 
 # multipart 파일을 디스크 임시 파일로 넘기지 않고 메모리에 둔다.
@@ -267,6 +279,32 @@ def _log_unhandled(exc: Exception) -> None:
 _CLOSE = {"Connection": "close"}  # 다 읽지 않은 본문이 남은 채로 답할 때는 연결을 닫는다
 
 
+def rate_limit_on() -> bool:
+    return os.environ.get("RATE_LIMIT", "").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _over_rate_limit(scope: dict) -> bool:
+    """이 요청이 같은 IP의 시간당 상한을 넘는지. 넘지 않으면 이번 요청을 센다."""
+    if scope["method"] != "POST" or not rate_limit_on():
+        return False
+    group = next((name for name, (paths, _) in RATE_LIMITS.items() if scope["path"] in paths), None)
+    if group is None:
+        return False
+    limit = RATE_LIMITS[group][1]
+    client = (scope.get("client") or ("-", 0))[0]  # uvicorn --proxy-headers면 실제 접속 IP
+    now = time.monotonic()
+    hits = _rate_hits.setdefault((group, client), deque())
+    while hits and now - hits[0] > RATE_WINDOW_SECONDS:
+        hits.popleft()
+    if len(hits) >= limit:
+        return True
+    hits.append(now)
+    if len(_rate_hits) > 10_000:  # 오래된 IP는 지워 메모리가 늘지 않게 한다
+        for key in [k for k, v in _rate_hits.items() if not v or now - v[-1] > RATE_WINDOW_SECONDS]:
+            del _rate_hits[key]
+    return False
+
+
 class RequestContextMiddleware:
     """요청 ID(X-Request-ID), 상태·시간 로그, 본문 크기·시간 상한, 업로드 자리, 처리되지 않은 예외 → 500."""
 
@@ -292,6 +330,12 @@ class RequestContextMiddleware:
             await send(message)
 
         try:
+            if _over_rate_limit(scope):
+                # 본문을 읽지 않았으므로 연결을 닫는다. IP는 로그에 남기지 않는다.
+                await api_error_response(ApiError("RATE_LIMITED", reason="rate_limit"), _CLOSE)(
+                    scope, receive, send_with_id
+                )
+                return
             upload = scope["method"] == "POST" and scope["path"] in UPLOAD_REQUEST_LIMITS
             if upload or scope["method"] in BODY_METHODS:
                 limit = UPLOAD_REQUEST_LIMITS[scope["path"]] if upload else JSON_REQUEST_LIMIT
@@ -706,3 +750,27 @@ def checklist_ics_route(req: IcsRequest) -> Response:
         media_type=ics.MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{ics.FILENAME}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# 배포: 빌드한 화면(frontend/dist)을 같은 주소에서 내준다
+# ---------------------------------------------------------------------------
+
+FRONTEND_DIST = Path(os.environ.get("FRONTEND_DIST", str(config.BACKEND_DIR.parent / "frontend" / "dist")))
+
+
+def mount_frontend(target: FastAPI, dist: Path) -> bool:
+    """dist(index.html이 있는 폴더)를 "/"에 붙인다. 화면은 주소 경로를 바꾸지 않으므로 SPA 대체 경로는 필요 없다.
+
+    API 경로를 모두 선언한 뒤에 불러야 한다 (먼저 선언한 경로가 먼저 잡힌다).
+    """
+    if not (dist / "index.html").is_file():
+        logger.warning("frontend dist missing; serving API only")
+        return False
+    target.mount("/", StaticFiles(directory=dist, html=True), name="frontend")
+    return True
+
+
+# SERVE_FRONTEND=1일 때만 (Dockerfile). 개발에서는 Vite 개발 서버가 화면을 내준다.
+if os.environ.get("SERVE_FRONTEND", "").strip().lower() in ("1", "true", "on", "yes"):
+    mount_frontend(app, FRONTEND_DIST)

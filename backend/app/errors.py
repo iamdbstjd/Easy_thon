@@ -26,6 +26,7 @@ ERROR_MESSAGES: dict[str, str] = {
     "NOT_CONTRACT": "임대차 계약서가 아닌 것 같아요.",
     "AI_FAILED": "문서를 읽지 못했어요. 잠시 후 다시 시도하거나 예시 결과를 확인해 주세요.",
     "BUSY": "지금 서류를 읽는 사람이 많아요. 잠시 후 다시 시도해 주세요.",
+    "RATE_LIMITED": "짧은 시간에 서류를 너무 많이 올렸어요. 잠시 후 다시 시도해 주세요.",
     # 개발용 코드 (사용자 화면에는 거의 나오지 않는다)
     "NOT_FOUND": "예시 데이터를 찾지 못했어요. 예시는 A, B, C예요.",
     "INVALID_REQUEST": "요청을 처리하지 못했어요. 페이지를 새로 고친 뒤 다시 시도해 주세요.",
@@ -39,6 +40,7 @@ ERROR_STATUS: dict[str, int] = {
     "NOT_CONTRACT": 422,
     "AI_FAILED": 502,  # API 키가 없으면 503
     "BUSY": 503,  # 서류 읽기 자리를 마감 시간 안에 잡지 못했다
+    "RATE_LIMITED": 429,  # 공개 배포에서 같은 IP의 서류 읽기가 너무 많다 (RATE_LIMIT=1일 때만)
     "NOT_FOUND": 404,
     "INVALID_REQUEST": 400,  # 없는 경로(404), 허용하지 않는 메서드(405), 너무 큰 본문(413) 등은 그 상태 코드를 쓴다
     "INTERNAL_ERROR": 500,

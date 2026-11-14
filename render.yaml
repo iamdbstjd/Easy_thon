@@ -1,0 +1,15 @@
+# Render 블루프린트: New → Blueprint → 이 저장소를 고르면 아래 설정으로 웹 서비스가 만들어진다.
+# sync: false인 값(API 키)은 만들 때 Render 화면에서 직접 넣는다. 저장소에는 넣지 않는다.
+services:
+  - type: web
+    name: jachwibang-bojeunggeum
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DATA_GO_KR_SERVICE_KEY
+        sync: false
+      - key: JUSO_API_KEY
+        sync: false

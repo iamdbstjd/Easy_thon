@@ -1596,3 +1596,53 @@ def test_real_compare_demo_file_is_valid_and_masked(client):
     req = CompareRequest.model_validate(r.json())
     assert (req.mode, req.before.mode, req.after.mode) == ("demo", "demo", "demo")
     assert UNMASKED_ID.search(r.text) is None
+
+
+# ---------------------------------------------------------------------------
+# 공개 배포: 요청 수 제한, 화면 내주기
+# ---------------------------------------------------------------------------
+
+
+def test_rate_limit_is_off_by_default(client, monkeypatch):
+    monkeypatch.delenv("RATE_LIMIT", raising=False)
+    monkeypatch.setattr(main, "_rate_hits", {})
+    for _ in range(25):
+        r = client.post("/api/extract", files=registry_file(b"GIF89a" + b"\x00" * 32))
+        assert r.status_code == 400
+
+
+def test_rate_limit_blocks_extracts_per_ip(client, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+    monkeypatch.setenv("RATE_LIMIT", "1")
+    monkeypatch.setattr(main, "_rate_hits", {})
+    gif = b"GIF89a" + b"\x00" * 32
+    limit = main.RATE_LIMITS["extract"][1]
+    for i in range(limit):
+        path = "/api/extract" if i % 2 == 0 else "/api/extract/contract"  # 두 경로를 함께 센다
+        field = "registry" if path == "/api/extract" else "contract"
+        assert client.post(path, files={field: ("x.gif", gif, "image/gif")}).status_code == 400
+    r = client.post("/api/extract", files=registry_file(gif))
+    assert_error(r, 429, "RATE_LIMITED")
+    assert "reason=rate_limit" in caplog.text and "testclient" not in caplog.text  # IP는 남기지 않는다
+    # 다른 경로(검사·예시)는 막지 않는다
+    assert client.get("/api/demo/C").status_code == 200
+
+
+def test_mount_frontend_serves_index_and_keeps_api(tmp_path):
+    from fastapi import FastAPI
+
+    (tmp_path / "index.html").write_text("<!doctype html><title>t</title>", encoding="utf-8")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
+    site = FastAPI()
+
+    @site.get("/api/ping")
+    def ping():
+        return {"ok": True}
+
+    assert main.mount_frontend(site, tmp_path) is True
+    web = TestClient(site)
+    assert web.get("/").text.startswith("<!doctype html>")
+    assert web.get("/assets/app.js").text == "console.log(1)"
+    assert web.get("/api/ping").json() == {"ok": True}
+    assert main.mount_frontend(FastAPI(), tmp_path / "missing") is False

@@ -162,7 +162,6 @@ export function ReviewScreen({
             </h2>
             <div className="rows">
               <MoneyField label="선순위 보증금" gloss={PRIOR_GLOSS} {...bind('manPriorDeposits')} />
-              <MoneyField label="시세" gloss={MARKET_GLOSS} {...bind('manMarketPrice')} />
             </div>
           </section>
         </>
@@ -177,12 +176,43 @@ export function ReviewScreen({
             <DateField label="계약 예정일" {...bind('manContractDate')} />
             <GrowingTextField label="임대인 이름" {...bind('manLandlordName')} />
             <MoneyField label="선순위 보증금" gloss={PRIOR_GLOSS} {...bind('manPriorDeposits')} />
-            <MoneyField label="시세" gloss={MARKET_GLOSS} {...bind('manMarketPrice')} />
           </div>
         </section>
       )}
 
-      {(building || market) && (
+      <section className="doc-section" aria-labelledby="review-market">
+        <h2 id="review-market">
+          시세 <span className="heading-note">{MARKET_GLOSS}</span>
+        </h2>
+        <div className="rows">
+          <ReadRow label="실거래로 찾은 시세">
+            {market && market.price !== null ? (
+              <>
+                {formatWon(market.price)}
+                <span className="muted">
+                  {' '}
+                  ({MARKET_METHOD_LABEL[market.method]}
+                  {market.deals > 0 ? ` ${groupNumber(market.deals)}건` : ''}
+                  {market.period ? `, ${formatPeriod(market.period)}` : ''})
+                </span>
+              </>
+            ) : (
+              <span className="muted">{request.mode === 'live' ? '찾지 못했어요' : '예시에 없어요'}</span>
+            )}
+          </ReadRow>
+          <MoneyField
+            label={market && market.price !== null ? '고친 시세' : '알고 있는 시세'}
+            hint={
+              market && market.price !== null
+                ? '비워 두면 위 실거래 시세를 써요.'
+                : '알면 넣어 주세요. 보증금이 시세의 몇 %인지 볼 수 있어요.'
+            }
+            {...bind('manMarketPrice')}
+          />
+        </div>
+      </section>
+
+      {building && (
         <section className="doc-section" aria-labelledby="review-public">
           <h2 id="review-public">함께 확인한 자료</h2>
           <div className="rows">
@@ -194,17 +224,6 @@ export function ReviewScreen({
                   {building.is_violating === null ? '알 수 없음' : building.is_violating ? '있음' : '없음'}
                 </ReadRow>
               </>
-            )}
-            {market && market.price !== null && (
-              <ReadRow label="시세">
-                {formatWon(market.price)}
-                <span className="muted">
-                  {' '}
-                  ({MARKET_METHOD_LABEL[market.method]}
-                  {market.deals > 0 ? ` ${groupNumber(market.deals)}건` : ''}
-                  {market.period ? `, ${formatPeriod(market.period)}` : ''})
-                </span>
-              </ReadRow>
             )}
           </div>
         </section>

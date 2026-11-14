@@ -11,7 +11,6 @@ export interface ManualDraft {
   contract_date: string
   landlord_name: string
   prior_deposits: string
-  market_price: string
 }
 
 export interface UploadDraft {
@@ -30,7 +29,6 @@ export const EMPTY_MANUAL_DRAFT: ManualDraft = {
   contract_date: '',
   landlord_name: '',
   prior_deposits: '',
-  market_price: '',
 }
 
 export function emptyUploadDraft(): UploadDraft {
@@ -48,6 +46,6 @@ export function manualFromDraft(d: ManualDraft): ManualInput {
     contract_date: d.contract_date || null,
     landlord_name: d.landlord_name.trim() || null,
     prior_deposits: digitsToNumber(d.prior_deposits),
-    market_price: digitsToNumber(d.market_price),
+    market_price: null, // 시세는 실거래로 찾아 넣고, 읽은 내용 확인 화면에서 고친다
   }
 }

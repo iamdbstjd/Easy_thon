@@ -126,12 +126,6 @@ export function UploadScreen({
               value={draft.manual.prior_deposits}
               onChange={setManual('prior_deposits')}
             />
-            <MoneyField
-              label="시세"
-              gloss="매매 가격"
-              value={draft.manual.market_price}
-              onChange={setManual('market_price')}
-            />
           </div>
         </ToggleGroup>
       </div>

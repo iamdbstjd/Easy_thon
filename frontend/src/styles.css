@@ -1335,3 +1335,22 @@ details:not([open]) > summary .when-open {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* 개인정보 처리 안내: 가리기 예시 사진 */
+.privacy-figure {
+  margin-top: 16px;
+}
+.privacy-figure img {
+  display: block;
+  width: 100%;
+  max-width: 390px;
+  height: auto;
+  border: 1px solid var(--rule);
+}
+.privacy-figure figcaption {
+  max-width: 390px;
+  margin-top: 6px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+

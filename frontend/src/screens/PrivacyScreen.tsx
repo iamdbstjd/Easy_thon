@@ -1,3 +1,4 @@
+import maskExample from '../assets/mask-example.webp'
 import { useScreenFocus } from '../lib/useScreenFocus'
 
 /** 개인정보 처리 안내 (서류 올리기 화면의 확인 문장과 처음 화면 아래에서 연다) */
@@ -18,7 +19,7 @@ export function PrivacyScreen({ onBack }: { onBack: () => void }) {
         <ul className="dot-list">
           <li>등기부등본 PDF나 사진</li>
           <li>계약서 사진이나 PDF (올린 경우)</li>
-          <li>직접 입력한 값 (보증금, 월세, 계약 예정일, 임대인 이름, 선순위 보증금, 시세)</li>
+          <li>직접 입력하거나 고친 값 (보증금, 월세, 계약 예정일, 임대인 이름, 선순위 보증금, 시세)</li>
         </ul>
       </section>
 
@@ -50,7 +51,7 @@ export function PrivacyScreen({ onBack }: { onBack: () => void }) {
             <dt>시세 찾기</dt>
             <dd>
               실거래 시세를 찾으려고 등기부 주소 중 동 이름까지만(예: 경기도 용인시 수지구 죽전동) 행정안전부 주소
-              API로, 지역 코드와 연월만 국토교통부 실거래가 API로 보내요. 번지·이름은 보내지 않아요.
+              검색 서비스에, 지역 번호와 연월만 국토교통부 실거래가 공개 서비스에 보내요. 번지·이름은 보내지 않아요.
             </dd>
           </div>
           <div className="row">
@@ -75,8 +76,8 @@ export function PrivacyScreen({ onBack }: { onBack: () => void }) {
           <div className="row">
             <dt>OpenAI</dt>
             <dd>
-              학습에 쓰지 않아요. 응답 저장은 꺼 두었어요(store: false). 남용 감시를 위한 기록은 최대 30일
-              보관될 수 있어요.
+              학습에 쓰지 않고, 답도 저장하지 않게 해 두었어요. 다만 남용 감시를 위한 기록은 최대 30일 보관될 수
+              있어요.
             </dd>
           </div>
         </dl>
@@ -85,13 +86,29 @@ export function PrivacyScreen({ onBack }: { onBack: () => void }) {
       <section className="doc-section" aria-labelledby="privacy-you">
         <h2 id="privacy-you">직접 할 수 있는 일</h2>
         <ul className="dot-list">
-          <li>계약서 사진은 보내기 전에 주민등록번호·전화번호·서명·계좌번호 같은 곳을 가릴 수 있어요.</li>
+          <li>
+            계약서 사진은 보내기 전에 주민등록번호·전화번호·서명·계좌번호 같은 곳을 가릴 수 있어요. 흐리게 하는 게
+            아니라 검게 칠해서, AI로 보내는 사진에서는 가린 곳이 완전히 지워져요.
+          </li>
           <li>주민등록번호와 전화번호는 결과 화면에서 자동으로 가려요.</li>
           <li>
-            계약서를 올리지 않고 보증금, 월세, 계약 예정일, 임대인 이름, 선순위 보증금, 시세를 직접 입력할 수
-            있어요. 직접 입력한 값은 OpenAI로 보내지 않아요. 등기부등본은 꼭 올려야 해요.
+            계약서를 올리지 않고 보증금, 월세, 계약 예정일, 임대인 이름, 선순위 보증금을 직접 입력할 수 있어요.
+            직접 입력한 값은 OpenAI로 보내지 않아요. 등기부등본은 꼭 올려야 해요.
           </li>
+          <li>시세는 실거래로 찾아서 넣고, 틀리면 읽은 내용 확인 화면에서 고칠 수 있어요.</li>
         </ul>
+        <figure className="privacy-figure">
+          <img
+            src={maskExample}
+            width={390}
+            height={580}
+            alt="가상 계약서 사진의 임대인·임차인 칸에서 주민등록번호와 전화번호 줄, 서명 자리를 검은 네모 네 개로 가린 화면"
+          />
+          <figcaption>
+            예시: 가상 계약서 사진에서 주민등록번호·전화번호 두 줄과 서명 두 곳을 '네모로 가리기'로 가린 화면이에요.
+            손가락으로 칠해서 가릴 수도 있어요.
+          </figcaption>
+        </figure>
       </section>
 
       <section className="doc-section" aria-labelledby="privacy-no">

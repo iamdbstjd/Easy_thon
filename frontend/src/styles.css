@@ -1304,6 +1304,18 @@ details:not([open]) > summary .when-open {
   font-size: 13px;
   text-align: center;
 }
+/* PDF 계약서 가리기: 쪽 고르기 (고른 쪽은 굵게, 밑줄 없이) */
+.pdf-mask {
+  margin-top: 4px;
+}
+.page-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 16px;
+}
+.page-tab[aria-pressed='true'] {
+  font-weight: 700;
+  text-decoration: none;
 }
 /* 끄는 동안 화면이 움직이지 않게 한다 */
 .mask-canvas {

@@ -1,7 +1,9 @@
-// 계약서 사진 자동 가리기(src/lib/autoMask.ts)에 쓰는 글자 읽기(OCR) 파일을 public/ocr/로 복사한다.
-// 사진이 휴대폰 밖으로 나가지 않도록 OCR은 브라우저 안에서 돌고, 파일도 CDN이 아니라 우리 주소(/ocr/)에서 받는다.
-// npm run dev·build 앞에서 자동으로 돈다. public/ocr/는 만들어지는 폴더라 저장소에 올리지 않는다.
-import { copyFileSync, mkdirSync, statSync } from 'node:fs'
+// 계약서 자동 가리기에 쓰는 파일을 node_modules에서 public/으로 복사한다.
+// - public/ocr/: 사진 글자 읽기(OCR, src/lib/autoMask.ts)의 엔진·영어 모델
+// - public/pdfjs/: PDF 쪽 그리기(src/lib/pdfPages.ts)의 pdf.js 일꾼·글꼴 지도(cmaps)·표준 글꼴·wasm·색 프로필
+// 사진·PDF가 기기 밖으로 나가지 않도록 둘 다 브라우저 안에서 돌고, 파일도 CDN이 아니라 우리 주소에서 받는다.
+// npm run dev·build 앞에서 자동으로 돈다. 두 폴더는 만들어지는 폴더라 저장소에 올리지 않는다.
+import { copyFileSync, cpSync, mkdirSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -42,3 +44,29 @@ for (const [from, name] of files) {
   }
 }
 console.log(`copy-ocr: public/ocr ${copied ? `${copied}개 복사` : '그대로'}`)
+
+// pdf.js: 옛 브라우저용(legacy) 일꾼과, 한글 PDF를 그리는 데 필요한 글꼴 지도·표준 글꼴, JPX·JBIG2 그림과 색 프로필을 푸는 wasm
+const pdfjsDir = dirname(require.resolve('pdfjs-dist/package.json'))
+const pdfOut = join(here, '..', 'public', 'pdfjs')
+mkdirSync(join(pdfOut, 'wasm'), { recursive: true })
+copyFileSync(join(pdfjsDir, 'legacy', 'build', 'pdf.worker.min.mjs'), join(pdfOut, 'pdf.worker.min.mjs'))
+for (const dir of ['cmaps', 'standard_fonts', 'iccs']) {
+  cpSync(join(pdfjsDir, dir), join(pdfOut, dir), { recursive: true })
+}
+// 스크립트 실행(quickjs)은 쓰지 않으므로 그림·색에 쓰는 것만
+for (const name of [
+  'openjpeg.wasm',
+  'openjpeg_nowasm_fallback.js',
+  'jbig2.wasm',
+  'jbig2_nowasm_fallback.js',
+  'qcms_bg.wasm',
+  'LICENSE_OPENJPEG',
+  'LICENSE_PDFJS_OPENJPEG',
+  'LICENSE_JBIG2',
+  'LICENSE_PDFJS_JBIG2',
+  'LICENSE_QCMS',
+  'LICENSE_PDFJS_QCMS',
+]) {
+  copyFileSync(join(pdfjsDir, 'wasm', name), join(pdfOut, 'wasm', name))
+}
+console.log('copy-ocr: public/pdfjs 복사')

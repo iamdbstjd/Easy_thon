@@ -9,6 +9,7 @@ frontend/node_modules/
 frontend/dist/
 # 계약서 사진 자동 가리기의 OCR 파일 (npm run dev·build가 node_modules에서 복사한다)
 frontend/public/ocr/
+frontend/public/pdfjs/
 
 # 비밀 값 (API 키)
 .env

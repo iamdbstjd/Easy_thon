@@ -58,12 +58,14 @@ export interface JpegPage {
   /** 픽셀 크기 */
   width: number
   height: number
+  /** 쪽 크기 (pt). 없으면 A4 */
+  size?: [number, number]
 }
 
 /** A4 (pt) */
 const A4: [number, number] = [595.28, 841.89]
 
-/** 쪽마다 JPEG 한 장을 A4 한 면에 꽉 채운 PDF 파일 내용. 제목은 문서 정보(/Title)에 넣는다 */
+/** 쪽마다 JPEG 한 장을 한 면(기본 A4)에 꽉 채운 PDF 파일 내용. 제목은 문서 정보(/Title)에 넣는다 */
 export function jpegPdf(pages: JpegPage[], title: string): Uint8Array<ArrayBuffer> {
   const enc = new TextEncoder()
   const parts: Uint8Array[] = []
@@ -85,7 +87,6 @@ export function jpegPdf(pages: JpegPage[], title: string): Uint8Array<ArrayBuffe
     put('endobj\n')
   }
 
-  const [w, h] = A4
   // 1 문서, 2 쪽 목록, 3 문서 정보, 그 뒤로 쪽마다 [쪽, 그림, 그리기] 세 개씩
   put('%PDF-1.4\n%âãÏÓ\n')
   obj(1, '<< /Type /Catalog /Pages 2 0 R >>')
@@ -93,6 +94,7 @@ export function jpegPdf(pages: JpegPage[], title: string): Uint8Array<ArrayBuffe
   obj(3, `<< /Title ${pdfString(title)} /Producer (jipkimi) >>`)
   pages.forEach((page, i) => {
     const id = 4 + i * 3
+    const [w, h] = page.size ?? A4
     obj(
       id,
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${w} ${h}] ` +

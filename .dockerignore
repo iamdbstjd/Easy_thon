@@ -10,6 +10,7 @@ PLAN.md
 **/node_modules
 frontend/dist
 frontend/public/ocr
+frontend/public/pdfjs
 backend/.venv
 **/__pycache__
 **/.pytest_cache

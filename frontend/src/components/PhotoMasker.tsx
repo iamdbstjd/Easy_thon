@@ -28,6 +28,8 @@ export function PhotoMasker({
   marks,
   auto,
   autoFound,
+  what = '계약서 사진',
+  sendNote = '가린 사진만 보내요.',
   onChange,
 }: {
   id: string
@@ -38,6 +40,10 @@ export function PhotoMasker({
   auto: 'off' | 'pending' | 'done'
   /** 자동으로 찾아 가린 곳의 수 (사용자가 지워도 그대로) */
   autoFound: number
+  /** 화면 낭독기용 그림 이름 ("계약서 사진", "계약서 2쪽") */
+  what?: string
+  /** 안내 끝에 붙이는 보내는 방법 */
+  sendNote?: string
   onChange: (marks: MaskMark[]) => void
 }) {
   const baseId = useId()
@@ -219,7 +225,7 @@ export function PhotoMasker({
             : auto === 'done' && autoFound === 0
               ? '자동으로 가릴 번호를 찾지 못했어요. 주민등록번호·전화번호·서명·계좌번호처럼 보내고 싶지 않은 곳을 네모로 끌어 가리세요.'
               : '주민등록번호·전화번호·서명·계좌번호처럼 보내고 싶지 않은 곳을 네모로 끌어 가리세요.'}{' '}
-        가린 사진만 보내요.
+        {sendNote}
       </p>
       {status === 'loading' && <p className="muted">사진 불러오는 중</p>}
       {status === 'failed' && (
@@ -238,7 +244,7 @@ export function PhotoMasker({
             className="mask-canvas"
             style={{ width: `${zoom * 100}%` }}
             role="img"
-            aria-label="계약서 사진. 네모로 끈 곳이 검게 가려져요."
+            aria-label={`${what}. 네모로 끈 곳이 검게 가려져요.`}
             aria-describedby={helpId}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}

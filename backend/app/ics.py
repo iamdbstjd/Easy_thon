@@ -21,8 +21,8 @@ from app.schemas import IcsRequest
 FILENAME = "bojeunggeum-checklist.ics"
 MEDIA_TYPE = "text/calendar"
 PRODID = "-//Bojeunggeum Jikimi//Checklist 0.1//KO"
-CALENDAR_NAME = "보증금 지킴이 계약 일정"
-SUMMARY_PREFIX = "[보증금 지킴이]"
+CALENDAR_NAME = "집키미 계약 일정"
+SUMMARY_PREFIX = "[집키미]"
 ALARM_TRIGGER = "-PT15H"
 EVENT_WHENS = ("잔금일", "입주일")  # 캘린더에 넣는 체크리스트 시점
 TIMEZONE_LINES = [  # 한국은 서머타임이 없어 STANDARD 하나로 충분하다

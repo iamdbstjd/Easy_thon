@@ -139,7 +139,7 @@ h1:focus {
 .site-header-inner {
   max-width: 640px;
   margin: 0 auto;
-  padding: 14px var(--gutter-r) 0 var(--gutter-l);
+  padding: 14px var(--gutter-r) 6px var(--gutter-l);
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -147,6 +147,21 @@ h1:focus {
 }
 .site-name {
   font-weight: 700;
+}
+/* 로고: 누르면 처음 화면 (밑줄 없는 링크) */
+.site-home {
+  display: block;
+  line-height: 0;
+}
+.site-logo {
+  display: block;
+  width: auto;
+  height: 44px;
+}
+@media (max-width: 559px) {
+  .site-logo {
+    height: 40px;
+  }
 }
 /* 데모·모의 데이터 표시: 테두리 없는 보조 글자 */
 .mode-marker {

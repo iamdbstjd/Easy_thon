@@ -904,7 +904,7 @@ export default function App() {
 
   return (
     <>
-      <Header demo={demoMarker} />
+      <Header demo={demoMarker} onHome={goHome} />
       <main className="page">{screen}</main>
     </>
   )

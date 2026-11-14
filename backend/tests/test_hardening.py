@@ -918,7 +918,7 @@ def test_ics_strips_control_and_line_separator_chars():
     for ch in "  \x85\x00\x1b\x7f\x0b":
         assert ch not in text
     lines = unfold(text)
-    assert "SUMMARY:[보증금 지킴이] 잔금일: abcdefgh" in lines
+    assert "SUMMARY:[집키미] 잔금일: abcdefgh" in lines
     assert "DESCRIPTION:주소: 주소DTSTART:20000101" in lines  # 새 줄(속성)로 끼어들지 못한다
     assert "DTSTART:20000101" not in lines
 

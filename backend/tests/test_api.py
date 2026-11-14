@@ -939,8 +939,8 @@ def test_ics_events_dates_alarm_and_escaping():
     assert lines.count("BEGIN:VEVENT") == 2  # 잔금일·입주일만
     summaries = [line for line in lines if line.startswith("SUMMARY:")]
     assert summaries == [
-        "SUMMARY:[보증금 지킴이] 잔금일: 잔금 보내기 전 등기부 다시 떼기 (새 근저당이 없는지)",
-        "SUMMARY:[보증금 지킴이] 입주일: 전입신고\\, 확정일자 받기\\; 당일",
+        "SUMMARY:[집키미] 잔금일: 잔금 보내기 전 등기부 다시 떼기 (새 근저당이 없는지)",
+        "SUMMARY:[집키미] 입주일: 전입신고\\, 확정일자 받기\\; 당일",
     ]
     assert "DTSTART;VALUE=DATE:20261114" not in lines  # 계약일은 넣지 않는다
     assert "DTSTART;VALUE=DATE:20261231" in lines

@@ -425,7 +425,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="자취방 보증금 지킴이 API",
+    title="집키미 API (자취방 보증금 지킴이)",
     version="0.1.0",
     description="등기부·계약서 추출(OpenAI GPT 또는 Claude)과 위험 신호 검사(규칙 엔진).",
     lifespan=lifespan,

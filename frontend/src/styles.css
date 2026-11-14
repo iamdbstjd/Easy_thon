@@ -1450,8 +1450,12 @@ details:not([open]) > summary .when-open {
   body.print-report .fold-body[hidden] {
     display: block !important;
   }
+  body.print-report .term {
+    text-decoration: none;
+  }
   body.print-report .fold-toggle,
   body.print-report .reveal-toggle,
+  body.print-report .term-note,
   body.print-report main button.link,
   body.print-report .share-line,
   body.print-report .actions,
@@ -1470,7 +1474,7 @@ details:not([open]) > summary .when-open {
 }
 
 /* 검토서 PDF 파일 (lib/reportPdf.ts): 화면 밖 iframe(폭 760px)에 검토서를 복사해 그림으로 뜬다.
-   인쇄와 같이 접힌 곳은 펼치고, 누르는 것(버튼·바로가기)은 뺀다 */
+   인쇄와 같이 접힌 곳은 펼치고, 누르는 것(버튼·바로가기)과 어려운 말의 밑줄·펼친 풀이는 뺀다 (끝의 '어려운 말 풀이' 절로 충분하다) */
 /* 캔버스는 고정폭 숫자를 못 그려서, 화면 배치도 보통 숫자로 맞춘다 (안 그러면 "2026 년"처럼 틈이 생긴다) */
 .pdf-capture,
 .pdf-capture * {
@@ -1490,8 +1494,12 @@ details:not([open]) > summary .when-open {
 .pdf-capture .fold-body[hidden] {
   display: block !important;
 }
+.pdf-capture .term {
+  text-decoration: none;
+}
 .pdf-capture .fold-toggle,
 .pdf-capture .reveal-toggle,
+.pdf-capture .term-note,
 .pdf-capture main button.link,
 .pdf-capture main p:has(> button.link),
 .pdf-capture .share-line,
@@ -1513,15 +1521,17 @@ details:not([open]) > summary .when-open {
   font: inherit;
   letter-spacing: inherit;
   text-align: inherit;
+  /* 옅은 회색 점선을 받침 바로 아래에 (글자 아래 끝에서 1px) */
   text-decoration: underline dotted;
+  text-decoration-color: #9aa0a9;
   text-decoration-thickness: 1px;
-  /* 한글 받침 아래로 띄운다 (글자 아래 끝에서 3px) */
   text-underline-position: under;
-  text-underline-offset: 3px;
+  text-underline-offset: 1px;
   cursor: help;
 }
 .term[aria-expanded='true'] {
   text-decoration-style: solid;
+  text-decoration-color: currentColor;
 }
 .term-note {
   display: block;

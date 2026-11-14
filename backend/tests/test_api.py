@@ -1614,9 +1614,11 @@ def test_rate_limit_is_off_by_default(client, monkeypatch):
 def test_rate_limit_blocks_extracts_per_ip(client, monkeypatch, caplog):
     caplog.set_level(logging.INFO)
     monkeypatch.setenv("RATE_LIMIT", "1")
+    monkeypatch.setenv("RATE_LIMIT_EXTRACT_PER_HOUR", "6")  # 배포하는 곳에서 바꿀 수 있다
     monkeypatch.setattr(main, "_rate_hits", {})
     gif = b"GIF89a" + b"\x00" * 32
-    limit = main.RATE_LIMITS["extract"][1]
+    limit = main.rate_limit_for("extract")
+    assert limit == 6
     for i in range(limit):
         path = "/api/extract" if i % 2 == 0 else "/api/extract/contract"  # 두 경로를 함께 센다
         field = "registry" if path == "/api/extract" else "contract"

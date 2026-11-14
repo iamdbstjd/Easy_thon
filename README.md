@@ -148,7 +148,7 @@ docker run -p 8000:8000 -e OPENAI_API_KEY=... -e DATA_GO_KR_SERVICE_KEY=... -e J
 
 - **Render**: New → Blueprint → 이 저장소를 고르면 `render.yaml` 설정(무료, Docker)으로 만들어진다. API 키 3개는 그때 Render 화면에 넣는다.
 - API 키는 이미지와 저장소에 넣지 않는다 (`.dockerignore`가 `.env`를 뺀다).
-- 컨테이너에서는 같은 IP의 서류 읽기를 시간당 20번, 시세 찾기를 60번까지만 받는다 (`RATE_LIMIT=1`, OpenAI 비용·남용 방지). 넘으면 429.
+- 컨테이너에서는 같은 IP의 서류 읽기를 시간당 60번, 시세 찾기를 200번까지만 받는다 (`RATE_LIMIT=1`, OpenAI 비용·남용 방지). 넘으면 429. 행사장처럼 여러 사람이 한 IP로 나가는 곳을 생각해 넉넉히 두었고, `RATE_LIMIT_EXTRACT_PER_HOUR`·`RATE_LIMIT_MARKET_PER_HOUR`로 바꿀 수 있다.
 - 무료 Render는 15분 동안 요청이 없으면 잠들고, 다음 첫 요청에 1분 가까이 걸린다.
 
 ## API

@@ -87,10 +87,12 @@ MAX_VALIDATION_ERRORS = 20  # 422 응답에 담는 오류 수
 STARTED_AT = "started_at"  # scope["state"]에 넣는 요청 시작 시각 (이벤트 루프 시각)
 # 공개 배포에서 같은 IP가 짧은 시간에 서류 읽기를 너무 많이 하지 못하게 한다 (OpenAI 비용·남용 방지).
 # 환경변수 RATE_LIMIT=1일 때만 켠다 (Dockerfile). 개발·테스트에서는 꺼져 있다.
-# 묶음 이름 → (경로들, 시간당 횟수). 본문을 읽기 전에 거절한다.
+# 묶음 이름 → (경로들, 시간당 기본 횟수). 본문을 읽기 전에 거절한다.
+# 행사장처럼 여러 사람이 한 공용 IP로 나가는 곳을 생각해 넉넉히 둔다.
+# 배포하는 곳에서 RATE_LIMIT_EXTRACT_PER_HOUR, RATE_LIMIT_MARKET_PER_HOUR로 바꿀 수 있다.
 RATE_LIMITS = {
-    "extract": ((EXTRACT_PATH, EXTRACT_CONTRACT_PATH), 20),
-    "market": (("/api/market",), 60),
+    "extract": ((EXTRACT_PATH, EXTRACT_CONTRACT_PATH), 60),
+    "market": (("/api/market",), 200),
 }
 RATE_WINDOW_SECONDS = 3600.0
 _rate_hits: dict[tuple[str, str], deque] = {}
@@ -283,6 +285,16 @@ def rate_limit_on() -> bool:
     return os.environ.get("RATE_LIMIT", "").strip().lower() in ("1", "true", "on", "yes")
 
 
+def rate_limit_for(group: str) -> int:
+    """묶음의 시간당 상한. RATE_LIMIT_{묶음}_PER_HOUR가 양의 정수면 그 값, 아니면 기본값."""
+    raw = os.environ.get(f"RATE_LIMIT_{group.upper()}_PER_HOUR", "").strip()
+    try:
+        value = int(raw) if raw else 0
+    except ValueError:
+        value = 0
+    return value if value > 0 else RATE_LIMITS[group][1]
+
+
 def _over_rate_limit(scope: dict) -> bool:
     """이 요청이 같은 IP의 시간당 상한을 넘는지. 넘지 않으면 이번 요청을 센다."""
     if scope["method"] != "POST" or not rate_limit_on():
@@ -290,7 +302,7 @@ def _over_rate_limit(scope: dict) -> bool:
     group = next((name for name, (paths, _) in RATE_LIMITS.items() if scope["path"] in paths), None)
     if group is None:
         return False
-    limit = RATE_LIMITS[group][1]
+    limit = rate_limit_for(group)
     client = (scope.get("client") or ("-", 0))[0]  # uvicorn --proxy-headers면 실제 접속 IP
     now = time.monotonic()
     hits = _rate_hits.setdefault((group, client), deque())

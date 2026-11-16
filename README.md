@@ -7,8 +7,17 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE">MIT License</a> · <a href="screenshots/README.md">화면 보기</a>
+  <a href="docs/jipkimi-easython-2026.pdf">발표 자료</a> · <a href="screenshots/README.md">화면 보기</a> · <a href="LICENSE">MIT License</a>
 </p>
+
+## 발표 자료
+
+2026 EasyThon 발표 자료 (11쪽, PDF). 그림을 누르면 PDF가 열린다.
+
+<a href="docs/jipkimi-easython-2026.pdf"><img src="docs/jipkimi-easython-2026-preview.jpg" alt="발표 자료 11쪽 미리보기: 문제의식, 차별점, 서비스, 기술 구현, 시연 영상, 기대효과"></a>
+
+- 4쪽 등기부 예시는 이름·생년월일·주소를 가려서 올렸다.
+- 9쪽 QR 코드는 행사 때 열어 둔 시연 주소로, 지금은 닫혀 있다. 직접 실행하는 방법은 [시작하기](#시작하기)에 있다.
 
 ## 왜 만들었나
 
@@ -51,8 +60,9 @@
 - **어려운 말 풀이**: 위험 신호 이름은 쉬운 말을 앞에, 공식 용어를 괄호에 둔다 (예: 신탁회사 소유 (신탁등기)). 근저당·대항력·확정일자 같은 말 32개는 점선 밑줄을 누르면 그 자리에 한두 줄 풀이가 나오고, 검토서 끝에 그 검토서에 나온 말의 풀이를 모은다 (PDF·인쇄에도 들어간다). 계약서 수정 요청서는 공인중개사·임대인에게 보여 주는 문서라 공식 용어 그대로 둔다.
 - **종합 판정**: 계약 보류 권장 / 추가 확인 필요 / 확인 미완료 / 큰 위험 신호 없음.
 - **다음 행동**: 계약 일정(잔금일·입주일 캘린더 파일)과 계약 전·잔금일·입주일 체크리스트.
+- **바로가기**: 검토서 위쪽에서 건물 주소로 네이버 지도·카카오맵을 검색하고, 실거래가 공개시스템·세움터(건축물대장)·인터넷등기소로 바로 간다. 휴대폰은 앱 연결 화면을 거치지 않는 모바일 주소를 쓴다. 예시 데이터는 가상 주소라 지도 바로가기를 숨긴다.
 - **검토서 보내기**: [PDF로 공유하기]를 누르면 브라우저 안에서 검토서 전체를 A4 PDF 파일로 만든다 (접힌 근거 원문도 펼치고, 주민등록번호·전화번호는 화면처럼 가린다). 휴대폰은 공유창으로 카톡·메일에 파일을 바로 보내고, 컴퓨터는 파일로 내려받는다. 컴퓨터의 [메일로 보내기]는 제목·요약 글을 채운 메일 앱(mailto)을 열면서 첨부할 PDF를 함께 내려받는다. 메일은 사용자의 메일 앱·계정으로 보내고, 서버로 보내거나 저장하지 않는다. 짧은 요약 글 공유와 인쇄도 있다. PDF에는 본문의 밑줄·펼친 풀이 없이 끝의 '어려운 말 풀이'만 들어간다.
-- **틀린 값 고치기**: AI가 읽은 값을 사용자가 확인하고 고친 뒤 다시 검사할 수 있다.
+- **틀린 값 고치기**: AI가 읽은 값을 사용자가 확인하고 고친 뒤 다시 검사할 수 있다. 등기부·계약서 제목 옆 [원문 보기]를 누르면 올린 서류를 쪽마다 펼쳐 놓고 읽은 값과 맞춰 볼 수 있다 (보낸 그대로라서 가린 계약서는 가린 채 보인다).
 - **예시 데이터**: API 키나 인터넷 없이도 예시 A·B·C, 계약 후 재확인 예시, 수정 전·후 비교 예시로 전체 흐름을 볼 수 있다.
 
 ## 동작 방식
@@ -217,10 +227,13 @@ backend/
 frontend/
   src/screens/         시작 · 서류 올리기 · 서류 읽는 중 · 읽은 내용 확인 · 검토서 · 계약 후 재확인 · 수정 전·후 비교 · 개인정보 처리 안내
   src/components/      사진 가리기(PhotoMasker), 전송 동의(ConsentNotice) 등
+  src/lib/             검토서 PDF 만들기(reportPdf), 자동 가리기(autoMask·pdfPages), 공유(share)
+  src/content/         화면 고정 문구, 어려운 말 풀이(glossary)
   src/api/             API 클라이언트와 타입
   src/mocks/           ?mock=1 전용 데이터
 screenshots/           화면 캡처
-assets/                README 배너와 생성 스크립트
+docs/                  발표 자료 (2026 EasyThon)
+assets/                README 로고, 예전 배너와 생성 스크립트
 ```
 
 ## 한계
@@ -228,7 +241,7 @@ assets/                README 배너와 생성 스크립트
 - **법률 자문이 아니다.** 결과는 참고 정보이며 보증금의 안전을 보장하지 않는다.
 - 등기부만으로는 선순위 보증금, 집주인의 세금 체납, 보증사고 이력을 알 수 없다. 검토서에 따로 확인하는 방법을 안내한다.
 - AI 추출은 가상 예시 서류(A·B·C 등기부, 계약서 PDF·사진, 잔금 전 등기부)로만 확인했다. `gpt-5.5`(low)로 서류 두 장에 6–13초, 종합 판정은 모든 예시에서 예시 입력값과 같았다. 실제 등기부로는 아직 충분히 검증하지 않았다.
-- 등기부 PDF와 PDF 계약서는 보내기 전에 가릴 수 없다. 등기부는 누구나 열람할 수 있는 공개 서류이고, 계약서는 사진으로 올리면 가릴 수 있다.
+- 등기부는 보내기 전에 가리지 않는다. 누구나 열람할 수 있는 공개 서류이고, 주민등록번호 뒷자리는 이미 가려져 나온다. 계약서는 사진과 PDF 모두 가려서 보낸다.
 - 서류 읽기는 프로세스마다 업로드 6건, AI 호출 4건까지 동시에 처리하고, 그보다 많으면 기다렸다가 85초 안에 자리가 나지 않으면 "지금 서류를 읽는 사람이 많아요"(BUSY)로 알린다.
 - 연결 헤더를 아주 느리게 보내는 공격(slowloris)은 앱보다 앞단에서 막아야 한다. 공개 배포 때는 리버스 프록시를 둔다. macOS에서 시연할 때는 `ulimit -n 4096`으로 파일 수 제한을 올려 둔다.
 - 실거래가 API는 연결했다 (`DATA_GO_KR_SERVICE_KEY`, `JUSO_API_KEY`). 키가 없거나 거래가 부족하면 시세를 채우지 않아 R5가 "확인 못 함"으로 나온다. 실거래는 동·호수가 공개되지 않고, 보증금이 작은 월세는 신고 대상이 아니어서 빠질 수 있다. 시세는 매매 중간값이라 참고값이다.
@@ -239,7 +252,8 @@ assets/                README 배너와 생성 스크립트
 
 - 백엔드: Python, FastAPI, Pydantic, pypdf, [OpenAI Python SDK](https://github.com/openai/openai-python) (`gpt-5.5`) 또는 [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python) (`claude-opus-5-5`)
 - 프론트엔드: React 19, TypeScript, Vite, Pretendard, Noto Serif KR
-- 배너 글꼴: [Galmuri](https://github.com/quiple/galmuri) (SIL Open Font License 1.1). 배너는 [`assets/make_banner.py`](assets/make_banner.py)로 다시 만들 수 있다.
+- 브라우저 안 처리: [html2canvas](https://github.com/niklasvh/html2canvas) (검토서 PDF), [tesseract.js](https://github.com/naptha/tesseract.js) · [pdf.js](https://github.com/mozilla/pdf.js) (보내기 전 자동 가리기)
+- 예전 배너(`assets/banner.png`) 글꼴: [Galmuri](https://github.com/quiple/galmuri) (SIL Open Font License 1.1). [`assets/make_banner.py`](assets/make_banner.py)로 다시 만들 수 있다.
 
 ## 라이선스
 

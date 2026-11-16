@@ -71,8 +71,10 @@ export function ReportScreen({
   const missingOnly = flagged.length === 0 && unknown.length > 0
 
   const target = request ? reviewTarget(request, report) : null
-  // 지도 검색에는 동·호수 없이 건물 주소만 쓴다
-  const mapAddress = request ? (request.registry.address_road ?? request.registry.address_jibun ?? null) : null
+  // 지도 검색에는 동·호수 없이 건물 주소만 쓴다. 예시는 가상 주소라 지도가 엉뚱한 곳을 보여 주므로 지도 링크를 뺀다
+  const mapAddress =
+    request && request.mode !== 'demo' ? (request.registry.address_road ?? request.registry.address_jibun ?? null) : null
+  const mobile = window.matchMedia?.('(pointer: coarse)').matches ?? false
   const shareBody = () => {
     const host = window.location.hostname
     const origin = host === 'localhost' || host === '127.0.0.1' ? null : window.location.origin
@@ -351,7 +353,7 @@ export function ReportScreen({
           <div className="row quick-row">
             <dt>바로가기</dt>
             <dd className="sep-list">
-              {quickLinks(mapAddress).map((link) => (
+              {quickLinks(mapAddress, mobile).map((link) => (
                 <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer">
                   {link.label}
                 </a>

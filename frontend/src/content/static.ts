@@ -69,13 +69,19 @@ export const RT_URL = 'https://rt.molit.go.kr'
 /** 세움터 (건축물대장 열람·발급) */
 export const EAIS_URL = 'https://www.eais.go.kr'
 
-/** 검토서 위쪽 '바로가기'. 지도는 주소로 검색한다 (누르면 그 지도 서비스로 주소가 넘어간다) */
-export function quickLinks(address: string | null): { label: string; href: string }[] {
+/**
+ * 검토서 위쪽 '바로가기'. 지도는 건물 주소로 검색한다.
+ * 휴대폰(mobile)은 앱 연결 화면을 거치지 않고 검색어가 그대로 가는 모바일 주소를 쓴다 (카카오는 공식 검색 링크).
+ */
+export function quickLinks(address: string | null, mobile = false): { label: string; href: string }[] {
   const links: { label: string; href: string }[] = []
   if (address) {
     const q = encodeURIComponent(address)
-    links.push({ label: '네이버 지도', href: `https://map.naver.com/p/search/${q}` })
-    links.push({ label: '카카오맵', href: `https://map.kakao.com/?q=${q}` })
+    links.push({
+      label: '네이버 지도',
+      href: mobile ? `https://m.map.naver.com/search?query=${q}` : `https://map.naver.com/p/search/${q}`,
+    })
+    links.push({ label: '카카오맵', href: `https://map.kakao.com/link/search/${q}` })
   }
   links.push({ label: '실거래가 공개시스템', href: RT_URL })
   links.push({ label: '세움터(건축물대장)', href: EAIS_URL })
